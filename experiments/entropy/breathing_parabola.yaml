@@ -1,0 +1,37 @@
+name: entropy/breathing_parabola
+device: cuda:0
+num_runs: 1
+seed: 1
+
+model:
+  module: diffusion.models.entropy
+  name: NEEP
+  args:
+    estimator_type: simple
+    layer_dims: !!python/tuple [10, 10, 10]
+
+loader:
+  module: diffusion.data.dataloaders
+  name: DataLoaderTrajectory
+  args:
+    batch_size: 64
+    train_fraction: .5
+    path: /raid/data/neep/breathing_parabola
+    standardize: true
+
+
+optimizer:
+  module: torch.optim
+  name: Adam
+  args:
+    lr: .001
+
+trainer:
+  module: diffusion.trainer
+  name: EntropyTrainer
+  args:
+    n_epochs: 200
+    bm_metric: loss
+    early_stop_criterion: 50 # if no improvement over this many epochs, stop training
+    log_dir: /rdata/results
+    save_dir: /rdata/results

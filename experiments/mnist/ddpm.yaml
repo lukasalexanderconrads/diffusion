@@ -1,0 +1,32 @@
+name: mnist/ddpm/TEST/
+device: cuda:0
+num_runs: 1
+seed: 1
+
+model:
+  module: diffusion.models.diffusion
+  name: DDPM
+  args:
+
+loader:
+  module: diffusion.data.dataloaders
+  name: DataLoaderMNIST
+  args:
+    batch_size: 100
+
+
+optimizer:
+  module: torch.optim
+  name: Adam
+  args:
+    lr: .001
+
+trainer:
+  module: diffusion.trainer
+  name: Trainer
+  args:
+    n_epochs: 1000
+    bm_metric: cross_entropy
+    early_stop_criterion: 300 # if no improvement over this many epochs, stop training
+    log_dir: /raid/results
+    save_dir: /raid/results
