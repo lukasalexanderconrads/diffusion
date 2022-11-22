@@ -163,16 +163,11 @@ class EntropyTrainer(Trainer):
         dt = (time_point[:, :, 1] - time_point[:, :, 0])[0].cpu()
         t_eval = (time_point[0, :, 0] + time_point[0, :, 1]).cpu() / 2
         entropy_production_rate = (torch.max(self.model.estimators['var'](current), dim=-1).values / dt)
-        #entropy_production_rate = self.remove_constant_epr(entropy_production_rate)
+        if hasattr(self.data_loader.train.dataset, 'loss'):
+            loss = self.data_loader.train.dataset.loss
 
 
         plt.plot(t_eval, entropy_production_rate, label=f'entropy production rate over time')
-
-        smoothed = torch.nn.functional.conv1d(entropy_production_rate.unsqueeze(0).unsqueeze(0),
-                                              torch.ones((201,)).unsqueeze(0).unsqueeze(0) / 201)
-        smoothed = smoothed.squeeze()
-        plt.plot(t_eval[100:-100], smoothed,
-                 label=f'epr')
 
         plt.legend()
         plt.xlabel('time')
@@ -235,11 +230,6 @@ class EntropyTrainer(Trainer):
             plt.ylabel('log loss')
             fig = plt.gcf()
             self.writer.add_figure(tag='loss', figure=fig, global_step=epoch)
-
-    def remove_constant_epr(self, entropy_production_rate):
-        smoothed = torch.nn.functional.conv1d(entropy_production_rate.unsqueeze(0).unsqueeze(0),
-                                                torch.ones((201,)).unsqueeze(0).unsqueeze(0)/201)
-        smoothed = smoothed.squeeze()
 
 
 

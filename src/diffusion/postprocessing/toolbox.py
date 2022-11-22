@@ -1,9 +1,12 @@
+import matplotlib.pyplot as plt
 import sklearn.decomposition
 import os
 import numpy as np
-from diffusion.models.recurrent import RNN
+import torch
 from diffusion.utils import *
-from diffusion.blocks import *
+from diffusion.models.entropy import *
+from scipy.integrate import simpson
+
 
 torch.set_grad_enabled(False)
 
@@ -19,12 +22,75 @@ def load_model(result_dir, model_name, model_version='best_model.pth', device='c
     if loader is None:
         loader = get_data_loader(config)
 
-    model = get_model(config, in_dim=loader.data_dim, out_dim=loader.n_classes, vocab_size=vocab_size).to(device)
+    model = get_model(config, data_shape=loader.data_shape).to(device)
 
     model.load_state_dict(state_dict)
     torch.set_grad_enabled(False)
 
     return model, loader
+
+def plot_things(model, loader, convergence_threshold=.01, do_wasserstein=False):
+    current_list = []
+    for minibatch in loader.test:
+        data = minibatch['data'].to(model.device)  # [B,T,2,D]
+        time_point = minibatch['time_point'].to(model.device)  # [B,T,2]
+        current = model.forward((data, time_point))  # [B,T,2,D], [B,T,2] -> [B,T]
+        current_list.append(current)
+
+    current = torch.concat(current_list, dim=0).cpu()
+    dt = (time_point[:, :, 1] - time_point[:, :, 0])[0].cpu()
+    t_eval = (time_point[0, :, 0] + time_point[0, :, 1]).cpu() / 2
+    entropy_production_rate = (torch.max(model.estimators['var'](current), dim=-1).values / dt)
+
+    plt.figure(figsize=(20, 20), dpi=200)
+    plt.rcParams['font.size'] = 15
+
+    if hasattr(loader.train.dataset, 'loss'):
+        loss = loader.train.dataset.loss
+        entropy_production_rate_truncated, cutoff_idx = remove_constant_epr(entropy_production_rate.clone(), loss, convergence_threshold)
+        #plt.plot(t_eval, torch.log(loss[:-1]), label=f'log loss')
+        plt.plot(t_eval, loss[:-1], label=f'loss')
+        plt.axvline(x=t_eval[cutoff_idx], color='violet', label='cutoff time')
+
+    if hasattr(loader.train.dataset, 'mi'):
+        mutual_information = loader.train.dataset.mi.cpu()
+        plt.plot(t_eval.numpy(), mutual_information[:-1].numpy(),
+                 label=f'mutual information')
+
+    if hasattr(loader.train.dataset, 'bounds') and do_wasserstein:
+        wasserstein_bounds = loader.train.dataset.bounds.cpu()
+        plt.plot(t_eval.numpy(), wasserstein_bounds[:, 0].numpy(),
+                 label=f'wasserstein bound 1')
+        plt.plot(t_eval.numpy(), wasserstein_bounds[:, 1].numpy(),
+                 label=f'wasserstein bound 2')
+        plt.plot(t_eval.numpy(), wasserstein_bounds[:, 2].numpy(),
+                 label=f'wasserstein bound 3')
+
+    plt.plot(t_eval, entropy_production_rate, label=f'epr')
+    plt.plot(t_eval, entropy_production_rate_truncated, label=f'epr truncated')
+
+    total_entropy_production = []
+    for i in range(1, len(t_eval)):
+        total_entropy_production.append(simpson(entropy_production_rate_truncated[:i],
+                                                t_eval[:i], even="avg"))
+    plt.plot(t_eval[:-1], total_entropy_production,
+             label=f'total ep')
+
+    plt.ylim(0, np.max(total_entropy_production) + 3)
+    plt.xlabel('time')
+    plt.legend()
+
+    print('mi over ep:', float(mutual_information[-1] / total_entropy_production[-1]))
+    if hasattr(loader.train.dataset, 'bounds') and do_wasserstein:
+        print('wasserstein 1 over ep:', float(wasserstein_bounds[-1, 0] / total_entropy_production[-1]))
+        print('wasserstein 2 over ep:', float(wasserstein_bounds[-1, 1] / total_entropy_production[-1]))
+        print('wasserstein 3 over ep:', float(wasserstein_bounds[-1, 2] / total_entropy_production[-1]))
+
+def remove_constant_epr(entropy_production_rate, loss, convergence_threshold):
+    # find convergence point in loss
+    convergence_idx = torch.argmax((torch.abs(loss[:-10] - loss[10:]) < convergence_threshold).float())
+    entropy_production_rate[convergence_idx:] = 0
+    return entropy_production_rate, convergence_idx
 
 def evaluate(model, dataset, recurrence=None):
     acc = 0
@@ -81,212 +147,3 @@ def load_and_evaluate_dir(result_dir, model_dir, crit_estim=None, use_embedding=
         print('number parameters:', n_params)
 
     return acc_list
-
-def get_final_steps(model, input, logits_stacked):
-    final_steps = model.get_final_steps(input, logits_stacked, None)
-    return final_steps
-
-def get_recurrence_estimator(model, loader, estimator, n_samples=-1, verbose=False, standardize=False):
-    if verbose:
-        print('training estimator')
-
-    x_data, y_data, _ = get_final_steps_data(model, loader.train)
-    x_data = x_data.cpu()
-    if standardize:
-        scaler = sklearn.preprocessing.StandardScaler()
-        x_data = scaler.fit_transform(x_data)
-        model.scaler = scaler
-
-    estimator.fit(x_data[:n_samples], y_data.cpu()[:n_samples])
-    if verbose:
-        print('testing estimator')
-    x_data, y_data, _ = get_final_steps_data(model, loader.valid)
-    x_data = x_data.cpu()
-    if standardize:
-        x_data = scaler.transform(x_data)
-
-    acc = estimator.score(x_data, y_data.cpu())
-    if verbose:
-        print('recurrence estimator test accuracy:', acc)
-    return estimator
-
-def get_final_steps_data(model, dataset):
-    x_data = []
-    y_data = []
-    c_data = []
-
-    for i, minibatch in enumerate(dataset):
-        target = minibatch['target']
-        input = minibatch['input']
-        logits_stacked = model(input)
-        final_steps = model.get_final_steps(input, logits_stacked, target)
-        if hasattr(model, 'use_embedding'):
-            if model.use_embedding:
-                input = model.fc_layers(input)
-
-
-        x_data.append(input)
-        y_data.append(final_steps)
-        c_data.append(target)
-
-
-    x_data = torch.cat(x_data, dim=0)
-    y_data = torch.cat(y_data, dim=0)
-    c_data = torch.cat(c_data, dim=0)
-
-    return x_data, y_data, c_data
-
-def get_computational_cost(model, dataset=None, verbose=False):
-    n_ops_total = 0
-    if not isinstance(model, RNN):
-        for layer in model.get_logits:
-            if hasattr(layer, 'weight'):
-                n_ops_total += layer.weight.size(0) * layer.weight.size(1)
-        return n_ops_total
-    else:
-        # get final steps
-        _, final_steps, _ = get_final_steps_data(model, dataset)
-        final_steps = final_steps.cpu()
-
-        ### FEATURE EMBEDDINGS
-        n_ops_fc = 0
-        for layer in model.fc_layers:
-            if hasattr(layer, 'weight'):
-                n_ops_fc += layer.weight.size(0) * layer.weight.size(1)
-        n_ops_total += n_ops_fc
-
-        ### RECURRENT BLOCK
-        # get final step distribution
-        final_step_distr = torch.zeros(model.max_rec_lim)
-        values, counts = torch.unique(final_steps, return_counts=True)
-        final_step_distr[values] = counts / torch.sum(counts)
-
-        # calculate operations
-        n_ops_rec = 0
-        if isinstance(model.rnn_layer, MyRNN):
-            in_dim = model.rnn_layer.in_dim
-            hidden_dim = model.rnn_layer.hidden_dim
-            for t, final_step_frac in enumerate(final_step_distr):
-                if t == 0:
-                    n_ops_rec += in_dim**2 * final_step_frac
-                elif t == 1:
-                    n_ops_rec += in_dim**2 + 2 * in_dim * hidden_dim * final_step_frac
-                else:
-                    n_ops_rec += in_dim**2 + 2 * in_dim * hidden_dim + (t - 1) * (hidden_dim**2 + hidden_dim * in_dim)\
-                        * final_step_frac
-        else:
-            for t, final_step_frac in enumerate(final_step_distr):
-                n_ops_rec += model.rnn_dim**2 * (t + 1) * final_step_frac
-
-        n_ops_total += n_ops_rec
-
-        ### OUTPUT LAYER
-        n_ops_out = 0
-        # operations in layer
-        for layer in model.get_logits:
-            if hasattr(layer, 'weight'):
-                n_ops_out += layer.weight.size(0) * layer.weight.size(1)
-        # how often output layer is calculated
-        if model.stop_crit == 'threshold':
-            n_times_out = torch.arange(model.max_rec) + 1
-            n_ops_total += torch.sum(n_times_out * final_step_distr) * n_ops_out
-        else:
-            n_ops_total += n_ops_out
-
-        ### LEARNABLE FUNCTION
-        n_ops_rec_fn = 0
-        if model.stop_crit == 'learnable':
-            for layer in model.get_final_step_probs:
-                if hasattr(layer, 'weight'):
-                    n_ops_rec_fn += layer.weight.size(0) * layer.weight.size(1)
-                if isinstance(layer, RBF):
-                    n_ops_rec_fn += layer.center.size(1) * layer.center.size(2)
-            n_ops_total += n_ops_rec_fn
-
-        if verbose:
-            print('fc layer:', n_ops_fc)
-            print('rnn layer:', n_ops_rec)
-            print('out layer:', n_ops_out)
-            print('rec_fn layer:', n_ops_rec_fn)
-
-        return n_ops_total
-
-
-def generate_latex_table_line(name, acc_list, ce_list, step_list):
-    """name & acc & ce & cost & acc/cost"""
-    line = name + ' &'
-    line += f'{np.around(np.mean(acc_list), 2): .2f} \\pm {np.around(np.std(acc_list), 2): .2f} & '
-    line += f'{np.around(np.mean(ce_list), 2): .2f} \\pm {np.around(np.std(ce_list), 2): .2f} & '
-    line += f'{np.around(np.mean(step_list), 2): .2f} \\pm {np.around(np.std(step_list), 2): .2f} & '
-    acc_cost_ratio = np.array(acc_list) / np.array(step_list)
-    line += f'{np.around(np.mean(acc_cost_ratio), 2): .2f} \\pm {np.around(np.std(acc_cost_ratio), 2): .2f} \\\\'
-    # best_index = np.argmax(acc_list)
-    # line += f'{np.around(acc_list[best_index], 2): .2f} & '
-    # line += f'{np.around(step_list[best_index], 2): .2f} & '
-    # cheapest_index = np.argmin(step_list)
-    # line += f'{np.around(acc_list[cheapest_index], 2): .2f} & '
-    # line += f'{np.around(step_list[cheapest_index], 2): .2f} \\\\'
-
-    print(line)
-
-
-
-def make_table(result_dir, model_type, crit_estim=None, use_embedding=False):
-    print('\\begin{center}')
-    print('\\begin{tabular}{ |l||l|l|l|l| }')
-    print('\\hline')
-    print(' & & & & ACC/ \\\\')
-    print('model & ACC & CE & OPS & OPS \\\\')
-    print('\\hline')
-    _, model_paths, _ = next(os.walk(os.path.join(result_dir, model_type)))
-    model_paths = sorted(model_paths)
-    for model_path in model_paths:
-        model_dir = os.path.join(model_type, model_path)
-        name = make_name(model_dir)
-        metrics = load_and_evaluate_dir(result_dir, model_dir, crit_estim, use_embedding, full_return=True)
-        generate_latex_table_line(name, *metrics)
-
-        print('\\hline')
-
-    print('\\end{tabular}')
-    print('\\end{center}')
-
-def make_name(path):
-    name = ''
-    if 'linear' in path:
-        name += 'sRNN '
-    elif 'myrnn1' in path:
-        name += 'hRNN '
-
-    if 'learnable' in path:
-        name += 'learnable '
-        if 'mlp' in path:
-            name += 'MLP '
-        elif 'rbf' in path:
-            name += 'RBF '
-        if 'none' in path:
-            name += 'loss '
-        elif 'first_correct' in path:
-            name += 'first\_correct '
-    elif 'first_correct' in path:
-        name += 'reg '
-    elif 'threshold' in path:
-        name += 'treshold '
-        if '0.5' in path:
-            name += '0.5 '
-        if '0.6' in path:
-            name += '0.6 '
-        if '0.7' in path:
-            name += '0.7 '
-        if '0.8' in path:
-            name += '0.8 '
-        if '0.9' in path:
-            name += '0.9 '
-
-    if 'max_rec_3' in path:
-        name += '$T=3$'
-    elif 'max_rec_5' in path:
-        name += '$T=5$'
-    else:
-        name += '$T=2$'
-    return name

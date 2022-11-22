@@ -140,15 +140,3 @@ class NEEP(BaseModel):
         return loss_stats | metric_stats \
                | {'current': j,
                   'time_point': t}
-
-
-def _build_layers(activation_fn, input_dim: int, layer_normalization: bool, layers: list, out_activation, output_dim: int) -> nn.Sequential:
-    layer_sizes = [input_dim] + list(map(int, layers))
-    layers = nn.Sequential()
-    for i in range(len(layer_sizes) - 1):
-        layers.add_module(f'layer {i}', nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
-        if layer_normalization:
-            layers.add_module(f'layer norm {i}', nn.LayerNorm(layer_sizes[i + 1]))
-        layers.add_module(f'activation {i}', activation_fn())
-    layers.add_module('output layer', nn.Linear(layer_sizes[-1], output_dim))
-    return layers

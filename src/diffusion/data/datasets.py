@@ -138,11 +138,13 @@ class TrajectoryDatasetAE(TrajectoryDataset):
         path_to_lr = os.path.join(self.path, 'learn_rate.pt')
         path_to_mi = os.path.join(self.path, 'mi.pt')
         path_to_loss = os.path.join(self.path, 'loss.pt')
+        path_to_bounds = os.path.join(self.path, 'bounds.pt')
 
         data = torch.load(path_to_data, map_location="cpu")  # [n_series, total_series_length, data_dim]
         lr = torch.load(path_to_lr, map_location="cpu")  # [total_series_length]
         self.mi = torch.load(path_to_mi, map_location="cpu")  # [total_series_length]
         self.loss = torch.load(path_to_loss, map_location="cpu")  # [total_series_length]
+        self.bounds = torch.load(path_to_bounds, map_location="cpu")  # [total_series_length]
 
         # shuffle data and split according to set
         rng = np.random.default_rng(self.seed)
