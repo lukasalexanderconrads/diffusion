@@ -162,12 +162,18 @@ class EntropyTrainer(Trainer):
         current = torch.concat(current, dim=0).cpu()
         dt = (time_point[:, :, 1] - time_point[:, :, 0])[0].cpu()
         t_eval = (time_point[0, :, 0] + time_point[0, :, 1]).cpu() / 2
-        entropy_production_rate = (torch.max(self.model.estimators['var'](current), dim=-1).values / dt)
+        estimated_epr = (torch.max(self.model.estimators['var'](current), dim=-1).values / dt)
+        # plot loss if contained in data set
         if hasattr(self.data_loader.train.dataset, 'loss'):
             loss = self.data_loader.train.dataset.loss
 
+        # plot estimated_epr
+        plt.plot(t_eval, estimated_epr, label=f'estimated epr')
 
-        plt.plot(t_eval, entropy_production_rate, label=f'entropy production rate over time')
+        if hasattr(self.data_loader.train.dataset, 'exact_epr'):
+            exact_epr = self.data_loader.train.dataset.exact_epr
+            plt.plot(t_eval, exact_epr, label=f'exact epr')
+
 
         plt.legend()
         plt.xlabel('time')
@@ -175,24 +181,34 @@ class EntropyTrainer(Trainer):
         fig = plt.gcf()
         self.writer.add_figure(tag='epr', figure=fig, global_step=epoch)
 
+        # plot mutual information if contained in data set
         if hasattr(self.data_loader.train.dataset, 'mi'):
             mutual_information = self.data_loader.train.dataset.mi
             plt.plot(t_eval.cpu().numpy(), mutual_information[:-1].cpu().numpy(),
                      label=f'mutual information')
 
-        total_entropy_production = []
+        # plot estimated estimated cumulative entropy production
+        estimated_cum_epr = []
         for i in range(1, len(t_eval)):
-            total_entropy_production.append(simpson(entropy_production_rate[:i],
+            estimated_cum_epr.append(simpson(estimated_epr[:i],
                     t_eval[:i], even="avg"))
-        plt.plot(t_eval[:-1], total_entropy_production,
-                 label=f'total entropy production')
+        plt.plot(t_eval[:-1], estimated_cum_epr,
+                 label=f'estimated cumulative entropy production')
 
+        # plot exact cumulative entropy production if contained in data set
+        if hasattr(self.data_loader.train.dataset, 'exact_epr'):
+            exact_cum_epr = []
+            for i in range(1, len(t_eval)):
+                exact_cum_epr.append(simpson(exact_epr[:i],
+                                                        t_eval[:i], even="avg"))
+            plt.plot(t_eval[:-1], exact_cum_epr,
+                     label=f'exact cumulative entropy production')
         plt.legend()
         plt.xlabel('time')
         plt.ylabel('total entropy production')
         fig = plt.gcf()
         self.writer.add_figure(tag='ep', figure=fig, global_step=epoch)
-        self.writer.add_scalar('valid/total_entropy_production_var', total_entropy_production[-1], epoch)
+        self.writer.add_scalar('valid/total_entropy_production_var', estimated_cum_epr[-1], epoch)
 
 
     def log_current_plot(self, current, time_point, epoch):

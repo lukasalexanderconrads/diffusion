@@ -3,7 +3,7 @@ from torch import nn
 from diffusion.models.base import BaseModel
 from diffusers import UNet2DModel
 
-class DDPM(BaseModel):
+class MyDDPM(BaseModel):
     def __init__(self, data_shape, **kwargs):
         """
         :param data_shape: tuple (n_channels, width, height)
@@ -61,6 +61,7 @@ class DDPM(BaseModel):
                 'loss': loss}
 
 
+class DDPM(BaseModel):
 
 
 

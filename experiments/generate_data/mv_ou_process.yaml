@@ -1,0 +1,10 @@
+name: mv_ou_process/
+seed: 1
+
+
+dim: 2                # dimension of the process
+T: 1                # last time point
+num_steps: 1000      # number of time steps
+num_samples: 1000    # ensemble size
+path: /raid/data/neep/mv_ou_process
+diagonal: False      # if matrices A, B are diagonal

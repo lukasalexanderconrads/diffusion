@@ -5,6 +5,7 @@ import os
 import numpy as np
 from math import floor, ceil
 
+from diffusion.models.trajectory_generator import DDPM
 
 
 class ImageDataset(Dataset):
@@ -88,9 +89,12 @@ class TrajectoryDataset(Dataset):
     def _get_data(self):
         path_to_data = os.path.join(self.path, 'trajectories.npy')
         path_to_time_points = os.path.join(self.path, 'time_points.npy')
+        path_to_exact_epr = os.path.join(self.path, 'exact_epr.npy')
 
         data = torch.from_numpy(np.load(path_to_data))  # [n_trajects, traject_length, data_dim]
         time_points = torch.from_numpy(np.load(path_to_time_points))    # [n_trajects, traject_length]
+        if os.path.exists(path_to_exact_epr):
+            self.exact_epr = torch.from_numpy(np.load(path_to_exact_epr))[:-1]
 
         # shuffle data and split according to set
         rng = np.random.default_rng(self.seed)
@@ -100,15 +104,16 @@ class TrajectoryDataset(Dataset):
         n_valid_samples = ceil((1 - self.train_fraction) / 2 * data.size(0))
         if self.set == 'train':
             data = data[:n_train_samples]
+            time_points = time_points[:n_train_samples]
         if self.set == 'valid':
             data = data[n_train_samples:(n_train_samples + n_valid_samples)]
+            time_points = time_points[n_train_samples:(n_train_samples + n_valid_samples)]
         if self.set == 'test':
             data = data[(n_train_samples + n_valid_samples):]
+            time_points = time_points[(n_train_samples + n_valid_samples):]
 
         n_trajects = data.shape[0]
         dim = data.shape[-1]
-        if time_points.shape[0] == 1:
-            time_points = time_points.repeat(n_trajects, 1)
 
         data = data.repeat_interleave(2, dim=1)         # [n_trajects, 2 * traject_length, data_dim]
         data = data[:, 1:-1]                            # [n_trajects, (traject_length - 1) * 2, data_dim]
@@ -186,3 +191,40 @@ class TrajectoryDatasetAE(TrajectoryDataset):
     def __getitem__(self, item):
         return {'data': self.data[item],
                 'time_point': self.time_points[item]}
+
+
+class DiffusionTrajectoryDataset(TrajectoryDataset):
+    def __init__(self, set='train', **kwargs):
+        super(TrajectoryDataset, self).__init__()
+        self.set = set
+        self.seed = kwargs.get('seed', 1)
+        self.path = kwargs.get('path', './data')
+        self.path_to_image_data = kwargs.get('path_to_image_data', '.')
+        self.train_fraction = kwargs.get('train_fraction', .8)
+        self.model = kwargs.get('model', 'DDPM')
+        self.num_steps = kwargs.get('num_steps', 100)
+        model_list = ['DDPM']
+        assert self.model in model_list, f'model must be one of {model_list}'
+
+        data, time_points = self._get_data()
+
+        self.data = data.float()                 # [batch_size, traject_length, 2, data_dim]
+        self.time_points = time_points.float()   # [batch_size, traject_length, 2]
+
+        self.data_shape = self.data.size(-1)
+        self.max_time = torch.max(time_points)
+
+    def _get_data(self):
+        image_dataset = torchvision.datasets.CIFAR10(root=self.path_to_image_data, download=True, train=True)
+        images = torch.tensor(image_dataset.data).permute(0, 3, 1, 2)
+
+        model = eval(self.model)(self.num_steps)
+        model.forward(images)
+        exit()
+
+        image_data = None
+
+if __name__ == '__main__':
+    dataset = DiffusionTrajectoryDataset(model='DDPM',
+                                         path_to_image_data='/raid/data/cifar10')
+

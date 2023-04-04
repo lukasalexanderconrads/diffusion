@@ -168,6 +168,46 @@ def integ2(x):
 def integ0(x):
     return np.ones(np.asarray(x).shape)*5
 
+def get_random_hermitian(dim, allow_singular=True, rng=None):
+    """
+    :param dim: size of the matrix
+    :param allow_singular: if matrix is allowed to be singular
+    :return: hermitian matrix of shape [dim, dim]
+    """
+    rng = np.random.default_rng() if rng is None else rng
+    while True:
+        A_root = rng.random((dim, dim))
+        A = A_root @ A_root.T
+
+        if allow_singular or not np.isclose(np.linalg.det(A), 0):
+            return A
+
+def get_random_matrix(dim, allow_singular=True, rng=None):
+    """
+    :param dim: size of the matrix
+    :param allow_singular: if matrix is allowed to be singular
+    :return: hermitian matrix of shape [dim, dim]
+    """
+    rng = np.random.default_rng() if rng is None else rng
+    while True:
+        A = rng.random((dim, dim))
+
+        if allow_singular or not np.isclose(np.linalg.det(A), 0):
+            return A
+
+def get_random_diagonal_matrix(dim, allow_singular=True, rng=None):
+    """
+    :param dim: size of the matrix
+    :param allow_singular: if matrix is allowed to be singular
+    :return: hermitian matrix of shape [dim, dim]
+    """
+    rng = np.random.default_rng() if rng is None else rng
+    while True:
+        A = np.diag(rng.random((dim,)))
+
+        if allow_singular or not np.isclose(np.linalg.det(A), 0):
+            return A
+
 if __name__ == '__main__':
 
     parsed_yaml = read_yaml('trainer/test/TEST.yaml')
