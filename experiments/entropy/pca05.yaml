@@ -16,7 +16,7 @@ loader:
   args:
     batch_size: [128]
     train_fraction: .8
-    path: /raid/data/neep/training_sgd_data_loader_batch_size_32_optimizer_lr_0.05/0208_120221
+    path: /raid/data/neep/_data_loader_batch_size_32_optimizer_lr_0.05/1811_143858
     standardize: true
 
 
@@ -30,8 +30,8 @@ trainer:
   module: diffusion.trainer
   name: EntropyTrainer
   args:
-    n_epochs: 200
+    n_epochs: 1000
     bm_metric: loss
-    early_stop_criterion: 50 # if no improvement over this many epochs, stop training
+    #early_stop_criterion: 100 # if no improvement over this many epochs, stop training
     log_dir: /rdata/results
     save_dir: /rdata/results

@@ -8,7 +8,7 @@ model:
   name: NEEP
   args:
     estimator_type: simple
-    layer_dims: [!!python/tuple [10, 10, 10], !!python/tuple [300, 300, 300]]
+    layer_dims: [!!python/tuple [300, 300, 300]]
 
 loader:
   module: diffusion.data.dataloaders
@@ -16,7 +16,7 @@ loader:
   args:
     batch_size: [128]
     train_fraction: .8
-    path: /raid/data/neep/training_data_loader_batch_size_32_optimizer_lr_0.005/0208_113149
+    path: /raid/data/neep/_data_loader_batch_size_32_optimizer_lr_0.005/1811_144017
     standardize: true
 
 
@@ -32,6 +32,6 @@ trainer:
   args:
     n_epochs: 200
     bm_metric: loss
-    early_stop_criterion: 50 # if no improvement over this many epochs, stop training
+    early_stop_criterion: 100 # if no improvement over this many epochs, stop training
     log_dir: /rdata/results
     save_dir: /rdata/results
