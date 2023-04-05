@@ -24,7 +24,7 @@ optimizer:
   module: torch.optim
   name: Adam
   args:
-    lr: .001
+    lr: .001  # overridden by lr_scheduler
 
 trainer:
   module: diffusion.trainer
@@ -32,13 +32,13 @@ trainer:
   args:
     n_epochs: 500
     bm_metric: loss
-    early_stop_criterion: 200 # if no improvement over this many epochs, stop training
+    early_stop_criterion: 300 # if no improvement over this many epochs, stop training
     log_dir: /rdata/results
     save_dir: /rdata/results
 
-    schedulers:
-      - module: diffusion.schedulers
-        name: NEEP
-        args:
-          estimator_type: simple
-          layer_dims: [ !!python/tuple [ 5, 5, 5 ], !!python/tuple [ 10, 10, 10 ], !!python/tuple [ 30, 30, 30 ] ]
+    lr_scheduler:
+      module: diffusion.schedulers
+      name: HalvingScheduler
+      args:
+        start_value: .001
+        halve_after_epochs: !!python/tuple [300]

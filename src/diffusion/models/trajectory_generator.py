@@ -45,7 +45,7 @@ class MultivariateOUProcess:
 
             # exp(-At) @ mu_0
             diags = np.exp(-np.outer(self.time, lamda))  # [t, d]
-            term_exp = np.apply_along_axis(np.diag, axis=1, arr=diags)  # [t, d, d]
+            term_exp = batched_diag(diags)  # [t, d, d]
 
             term1 = np.einsum('ij,tjk->tik', S_ct, term_exp)  # [t, d, d]
             term2 = np.einsum('tij,jk->tik', term1, S)
@@ -61,7 +61,7 @@ class MultivariateOUProcess:
 
             # variance
             diags = np.exp(-2 * np.outer(self.time, lamda))  # [t, d]
-            term_exp = np.apply_along_axis(np.diag, axis=1, arr=diags)  # [t, d, d]
+            term_exp = batched_diag(diags)  # [t, d, d]
             term1 = term_exp + G  # [t, d, d]
             term2 = np.einsum('ij,tjk->tik', S_ct, term1)  # [t, d, d]
             self.var = np.einsum('tij,jk->tik', term2, S)
@@ -118,24 +118,30 @@ class MultivariateOUProcess:
         var = self.var
         if self.dim > 1:
 
-            if self.diagonal or True:
-                ### THIS WORKS
-                epr = 0
-                for i in range(self.dim):
-                    d = B[i, i] ** 2 / 2
-                    a = A[i, i]
-                    mean = self.mean[:, i]
-                    var = self.var[:, i, i]
-                    epr += a**2 / d * (mean**2 + var) + d / var - 2 * a
-                return epr
-            else:
-                D = B @ B.T / 2
-                inv_D = np.linalg.inv(D)
-                inv_var = np.linalg.inv(var)
-                ADA = A.T @ inv_D @ A
-                term1 = np.einsum('ti,ti->t', mean @ ADA, mean)
-                epr = term1 + np.trace(ADA[None, :, :] @ var, axis1=1, axis2=2) \
-                      - 2 * np.trace(A) + np.trace(ADA[None, :, :] @ inv_var, axis1=1, axis2=2)
+            # if self.diagonal and False:
+            #     ### THIS WORKS
+            #     # epr = 0
+            #     # for i in range(self.dim):
+            #     #     d = B[i, i] ** 2 / 2
+            #     #     a = A[i, i]
+            #     #     mean = self.mean[:, i]
+            #     #     var = self.var[:, i, i]
+            #     #     epr += a**2 / d * (mean**2 + var) + d / var - 2 * a
+            #     d = np.diag(B**2 / 2)
+            #     a = np.diag(A)
+            #     var = batched_diag(self.var)
+            #     epr = np.sum(a**2 / d * (mean**2 + var) + d / var - 2 * a, axis=1)
+            #
+            #     return epr
+            D = B @ B.T / 2
+            inv_D = np.linalg.inv(D)
+            inv_var = np.linalg.inv(var)
+            ADA = (A.T @ inv_D @ A)[None, :, :]
+            D = D[None, :, :]
+            mean_T = mean[:, None, :]
+            mean = mean[:, :, None]
+            epr = np.squeeze(mean_T @ ADA @ mean) + np.trace(ADA @ var + inv_var @ D, axis1=1, axis2=2) - 2 * np.trace(A)
+
         else:
             D = B**2 / 2
             epr = A ** 2 / D * (mean ** 2 + var) + D / var - 2 * A

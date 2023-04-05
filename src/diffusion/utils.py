@@ -208,7 +208,22 @@ def get_random_diagonal_matrix(dim, allow_singular=True, rng=None):
         if allow_singular or not np.isclose(np.linalg.det(A), 0):
             return A
 
+def batched_diag(A):
+    """
+    if A is 2d: first dimension is batch dimension, second is diagonal.
+        returns a 3d array which is a batch of diagonal matrices
+    if A is 3d: first dimension is batch dimension, second and third are matrix dimensions
+        returns a 2d array which is a batch of diagonals of the input matrices
+    :return:
+    """
+    if A.ndim == 2:
+        return np.apply_along_axis(np.diag, axis=1, arr=A)
+    elif A.ndim == 3:
+        return np.diagonal(A, axis1=1, axis2=2)
+    else:
+        raise Exception('Expected 2 or 3 dimensions, but got', A.ndim)
+
 if __name__ == '__main__':
 
-    parsed_yaml = read_yaml('trainer/test/TEST.yaml')
-    print(parsed_yaml)
+    A = np.random.rand(100, 3, 3)
+    print(batched_diag(A).shape)

@@ -64,6 +64,9 @@ class Trainer:
             scheduler = create_instance(scheduler_dict['module'], scheduler_dict['name'], scheduler_dict['args'])
             self.schedulers.append(scheduler)
 
+        lr_scheduler = kwargs.get('lr_scheduler', None)
+        self.lr_scheduler = create_instance(lr_scheduler['module'], lr_scheduler['name'], lr_scheduler['args'])
+
     def train(self):
         print('training parameters...')
         for epoch in tqdm(range(self.n_epochs), desc='epochs'):
@@ -84,6 +87,7 @@ class Trainer:
         self.update_scheduled_values(epoch)
         self.metric_avg.reset()
         for minibatch in tqdm(self.data_loader.train, desc='train set', leave=False):
+            self.update_lr(epoch)
             metrics = self.model.train_step(minibatch, self.optimizer)
             self.metric_avg.update(metrics)
         metrics = self.metric_avg.get_average()
@@ -134,6 +138,10 @@ class Trainer:
     def update_scheduled_values(self, epoch):
         for scheduler in self.schedulers:
             scheduler.update_scheduled_value(self.model, epoch)
+
+    def update_lr(self, epoch):
+        lr = self.lr_scheduler.get_scheduled_variable_value(epoch)
+        self.optimizer.param_groups[0]['lr'] = lr
 
     def create_model(self, config):
         self.model = get_model(config, data_shape=self.data_loader.data_shape)
