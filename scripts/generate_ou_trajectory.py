@@ -24,7 +24,7 @@ def main(config_path: Path):
     var_0 = np.eye(dim)
 
     diagonal = config.get('diagonal', False)
-    if diagonal or True:
+    if diagonal:
         A = get_random_diagonal_matrix(dim, rng=rng)
         B = get_random_diagonal_matrix(dim, allow_singular=False, rng=rng)
     else:

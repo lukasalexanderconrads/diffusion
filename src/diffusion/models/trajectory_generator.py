@@ -30,41 +30,41 @@ class MultivariateOUProcess:
             self.var_0 = var_0
             self.A = A
             self.B = B
-            if self.diagonal:
-                self.mean = mean_0[None, :] * np.exp(-2 * np.outer(self.time, np.diag(A)))
-                diags = np.exp(-2 * np.outer(self.time, np.diag(A)))  # [t, d]
-                term_exp = np.apply_along_axis(np.diag, axis=1, arr=diags)  # [t, d, d]
-                A_inv = np.diag(1 / np.diag(A))
-                self.var = (var_0 - B**2 / 2 * A_inv) * term_exp + B**2 / 2 * A_inv
+            # if self.diagonal and False:
+            #     self.mean = mean_0[None, :] * np.exp(-2 * np.outer(self.time, np.diag(A)))
+            #     diags = np.exp(-2 * np.outer(self.time, np.diag(A)))  # [t, d]
+            #     term_exp = np.apply_along_axis(np.diag, axis=1, arr=diags)  # [t, d, d]
+            #     A_inv = np.diag(1 / np.diag(A))
+            #     self.var = (var_0 - B**2 / 2 * A_inv) * term_exp + B**2 / 2 * A_inv
+            #
+            # else:
+            # Eigenvalue Decomposition
+            lamda, S = np.linalg.eig(A)  # [d], [d, d]
+            S_ct = S.copy()
+            S = S.conjugate().T
 
-            else:
-                # Eigenvalue Decomposition
-                lamda, S = np.linalg.eig(A)  # [d], [d, d]
-                S_ct = S.copy()
-                S = S.conjugate().T
+            # exp(-At) @ mu_0
+            diags = np.exp(-np.outer(self.time, lamda))  # [t, d]
+            term_exp = np.apply_along_axis(np.diag, axis=1, arr=diags)  # [t, d, d]
 
-                # exp(-At) @ mu_0
-                diags = np.exp(-np.outer(self.time, lamda))  # [t, d]
-                term_exp = np.apply_along_axis(np.diag, axis=1, arr=diags)  # [t, d, d]
+            term1 = np.einsum('ij,tjk->tik', S_ct, term_exp)  # [t, d, d]
+            term2 = np.einsum('tij,jk->tik', term1, S)
+            self.mean = np.einsum('tij,j->ti', term2, self.mean_0)
 
-                term1 = np.einsum('ij,tjk->tik', S_ct, term_exp)  # [t, d, d]
-                term2 = np.einsum('tij,jk->tik', term1, S)
-                self.mean = np.einsum('tij,j->ti', term2, self.mean_0)
+            # pairwise eigenvalue sums
+            lamda_sums = np.add.outer(lamda, lamda)
 
-                # pairwise eigenvalue sums
-                lamda_sums = np.add.outer(lamda, lamda)
+            # matrix G
+            SBBS = S @ B @ B.T @ S_ct
+            G = SBBS / (lamda_sums) * (1 - np.exp(-np.einsum('ij,t->tij', lamda_sums, self.time)))
+            #G = (B @ B.T) / (lamda_sums) * (1 - np.exp(-np.einsum('ij,t->tij', lamda_sums, self.time)))
 
-                # matrix G
-                SBBS = S @ B @ B.T @ S_ct
-                G = SBBS / (lamda_sums) * (1 - np.exp(-np.einsum('ij,t->tij', lamda_sums, self.time)))
-                #G = (B @ B.T) / (lamda_sums) * (1 - np.exp(-np.einsum('ij,t->tij', lamda_sums, self.time)))
-
-                # variance
-                diags = np.exp(-2 * np.outer(self.time, lamda))  # [t, d]
-                term_exp = np.apply_along_axis(np.diag, axis=1, arr=diags)  # [t, d, d]
-                term1 = term_exp + G  # [t, d, d]
-                term2 = np.einsum('ij,tjk->tik', S_ct, term1)  # [t, d, d]
-                self.var = np.einsum('tij,jk->tik', term2, S)
+            # variance
+            diags = np.exp(-2 * np.outer(self.time, lamda))  # [t, d]
+            term_exp = np.apply_along_axis(np.diag, axis=1, arr=diags)  # [t, d, d]
+            term1 = term_exp + G  # [t, d, d]
+            term2 = np.einsum('ij,tjk->tik', S_ct, term1)  # [t, d, d]
+            self.var = np.einsum('tij,jk->tik', term2, S)
         else:
             self.mean_0 = float(mean_0)
             self.var_0 = float(var_0)
@@ -118,7 +118,7 @@ class MultivariateOUProcess:
         var = self.var
         if self.dim > 1:
 
-            if self.diagonal:
+            if self.diagonal or True:
                 ### THIS WORKS
                 epr = 0
                 for i in range(self.dim):
@@ -156,20 +156,6 @@ class MultivariateOUProcess:
         for _ in tqdm(range(ensemble_size)):
             trajectory = self.get_trajectory()
             trajectory_list.append(trajectory)
-
-        # TEST #
-        # for t in range(len(trajectory)):
-        #     ensemble = np.stack(trajectory_list, axis=0)[:, t]
-        #     print(ensemble.shape)
-        #     mean = np.mean(ensemble, axis=0)
-        #     cov = np.cov(ensemble.T)
-        #     print(cov)
-        #     print(self.var[t])
-        #     # print(np.allclose(mean, self.mean[t]))
-        #     # print(np.allclose(cov, self.var[t]))
-        #     print('######')
-
-
 
         trajectories = np.stack(trajectory_list, axis=0)
         time_points = np.expand_dims(self.time, 0).repeat(ensemble_size, axis=0)

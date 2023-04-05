@@ -8,7 +8,7 @@ model:
   name: NEEP
   args:
     estimator_type: simple
-    layer_dims: !!python/tuple [5, 5, 5]
+    layer_dims: [!!python/tuple [5, 5, 5], !!python/tuple [10, 10, 10], !!python/tuple [30, 30, 30]]
 
 loader:
   module: diffusion.data.dataloaders
@@ -35,3 +35,10 @@ trainer:
     early_stop_criterion: 200 # if no improvement over this many epochs, stop training
     log_dir: /rdata/results
     save_dir: /rdata/results
+
+    schedulers:
+      - module: diffusion.schedulers
+        name: NEEP
+        args:
+          estimator_type: simple
+          layer_dims: [ !!python/tuple [ 5, 5, 5 ], !!python/tuple [ 10, 10, 10 ], !!python/tuple [ 30, 30, 30 ] ]

@@ -12,7 +12,7 @@ class NEEP(BaseModel):
     Neural estimator for entropy production
     """
 
-    def __init__(self, data_shape, **kwargs):
+    def __init__(self, data_dim, **kwargs):
         super(NEEP, self).__init__(**kwargs)
 
         self.estimator_type = kwargs.get('estimator_type')
@@ -20,13 +20,15 @@ class NEEP(BaseModel):
         #self.breathing_parabola_model = kwargs.get('breathing_parabola_model', False)
 
         layer_dims = kwargs.get('layer_dims')
-        layer_dims = [data_shape] + layer_dims
+        self.out_dim = layer_dims[-1]
+        layer_dims = (torch.tensor([1] + layer_dims) * data_dim).tolist()
+
 
         self.mlp = create_mlp(layer_dims).to(self.device)
 
         self.max_time = kwargs.get('max_time')
 
-        self.out_dim = layer_dims[-1]
+        self.data_dim = data_dim
         self.t_centers = nn.Parameter(torch.arange(self.out_dim, device=self.device).unsqueeze(0).unsqueeze(1) \
                                       * self.max_time / (self.out_dim - 1))  # [1, 1, out_dim]
         self.bias = nn.Parameter(torch.ones_like(self.t_centers, device=self.device) \
@@ -58,14 +60,15 @@ class NEEP(BaseModel):
         t_in = torch.sum(t, dim=2) / 2                        # [B, T]
         t_in = t_in.unsqueeze(-1).repeat(1, 1, self.out_dim)  # [B, T, out_dim]
 
-        d_vec = self.mlp(x_in)  # [B, T, out_dim]
+        d_vec = self.mlp(x_in)  # [B, T, out_dim * D]
+        d_vec = d_vec.view(x.size(0), x.size(1), self.out_dim, self.data_dim) # [B, T, out_dim, D]
 
         # equation 22
-        t_gaussian = torch.exp(-torch.pow((t_in - self.t_centers) / self.bias, 2))  # [B, T, out_dim]
-        d = torch.sum(d_vec * t_gaussian, dim=2)  # [B, T]
+        t_gaussian = torch.exp(-torch.pow((t_in - self.t_centers) / self.bias, 2))[:, :, :, None]  # [B, T, out_dim, 1]
+        d = torch.sum(d_vec * t_gaussian, dim=2)  # [B, T, D]
 
         # generalized current
-        j = d.unsqueeze(-1) * (x[:, :, 1] - x[:, :, 0])  # [B, T, D]
+        j = torch.sum(d * (x[:, :, 1] - x[:, :, 0]).double(), dim=-1).unsqueeze(-1)  # [B, T]
 
         return j  # [B, T, D]
 
