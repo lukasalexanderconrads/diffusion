@@ -223,6 +223,8 @@ def batched_diag(A):
     else:
         raise Exception('Expected 2 or 3 dimensions, but got', A.ndim)
 
+
+
 if __name__ == '__main__':
 
     A = np.random.rand(100, 3, 3)

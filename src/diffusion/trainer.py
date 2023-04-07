@@ -155,9 +155,10 @@ class EntropyTrainer(Trainer):
         if split == 'valid':
             current = metrics.pop('current')
             time_point = metrics.pop('time_point')
-            self.log_entropy_production_rate_plot(current, time_point, epoch)
-            self.log_current_plot(current, time_point, epoch)
-            self.log_loss_plot(time_point, epoch)
+            if epoch % 50 == 0:
+                self.log_entropy_production_rate_plot(current, time_point, epoch)
+                self.log_current_plot(current, time_point, epoch)
+                self.log_loss_plot(time_point, epoch)
         super(EntropyTrainer, self).log(metrics, epoch, split)
 
     def log_entropy_production_rate_plot(self, current, time_point, epoch):

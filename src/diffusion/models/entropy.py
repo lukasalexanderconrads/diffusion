@@ -20,19 +20,30 @@ class NEEP(BaseModel):
         #self.breathing_parabola_model = kwargs.get('breathing_parabola_model', False)
 
         layer_dims = kwargs.get('layer_dims')
-        self.out_dim = layer_dims[-1]
-        layer_dims = (torch.tensor([1] + layer_dims) * data_dim).tolist()
 
-
-        self.mlp = create_mlp(layer_dims).to(self.device)
 
         self.max_time = kwargs.get('max_time')
 
+        self.kernel = kwargs.get('kernel', 'gaussian')
         self.data_dim = data_dim
-        self.t_centers = nn.Parameter(torch.arange(self.out_dim, device=self.device).unsqueeze(0).unsqueeze(1) \
-                                      * self.max_time / (self.out_dim - 1))  # [1, 1, out_dim]
-        self.bias = nn.Parameter(torch.ones_like(self.t_centers, device=self.device) \
+        if self.kernel == 'gaussian':
+            self.out_dim = layer_dims[-1]
+            layer_dims = (torch.tensor([1] + layer_dims) * data_dim).tolist()
+
+            self.t_centers = nn.Parameter(torch.arange(self.out_dim, device=self.device).unsqueeze(0).unsqueeze(1) \
+                                          * self.max_time / (self.out_dim - 1))  # [1, 1, out_dim]
+            self.bias = nn.Parameter(torch.ones_like(self.t_centers, device=self.device) \
                                  * self.max_time / (self.out_dim - 1))  # [1, 1, out_dim]
+        elif self.kernel == 'exponential':
+            self.out_dim = 4
+            layer_dims = [data_dim] + layer_dims + [4 * data_dim]
+        elif self.kernel == 'global_exponential':
+            self.out_dim = layer_dims[-1]
+            layer_dims = (torch.tensor([1] + layer_dims) * data_dim).tolist()
+            self.exp_params = nn.Parameter(torch.randn((4, data_dim), device=self.device))
+
+        self.mlp = create_mlp(layer_dims).to(self.device)
+
 
         # if self.breathing_parabola_model:
         #     p = (10.0, 1.0)
@@ -58,14 +69,24 @@ class NEEP(BaseModel):
 
         x_in = torch.sum(x, dim=2) / 2                        # [B, T, D]
         t_in = torch.sum(t, dim=2) / 2                        # [B, T]
-        t_in = t_in.unsqueeze(-1).repeat(1, 1, self.out_dim)  # [B, T, out_dim]
 
         d_vec = self.mlp(x_in)  # [B, T, out_dim * D]
         d_vec = d_vec.view(x.size(0), x.size(1), self.out_dim, self.data_dim) # [B, T, out_dim, D]
 
-        # equation 22
-        t_gaussian = torch.exp(-torch.pow((t_in - self.t_centers) / self.bias, 2))[:, :, :, None]  # [B, T, out_dim, 1]
-        d = torch.sum(d_vec * t_gaussian, dim=2)  # [B, T, D]
+        if self.kernel == 'gaussian':
+            t_in = t_in.unsqueeze(-1).repeat(1, 1, self.out_dim)  # [B, T, out_dim]
+            # equation 22
+            t_gaussian = torch.exp(-torch.pow((t_in - self.t_centers) / self.bias, 2))[:, :, :, None]  # [B, T, out_dim, 1]
+            d = torch.sum(d_vec * t_gaussian, dim=2)  # [B, T, D]
+        if self.kernel == 'exponential':
+            t_in = t_in.unsqueeze(-1)
+            d = d_vec[:, :, 0, :] + d_vec[:, :, 1, :] * torch.exp(d_vec[:, :, 2, :] * t_in + d_vec[:, :, 3, :])
+        if self.kernel == 'global_exponential':
+            t_in = t_in.unsqueeze(-1)
+            d = self.exp_params[0] + self.exp_params[1] * torch.exp(self.exp_params[2] * t_in) + self.exp_params[3]
+            t_indices = torch.round(t_in * (self.out_dim - 1) / self.max_time).unsqueeze(-1).expand(-1, -1, -1, self.data_dim).long()
+
+            d = d * torch.gather(d_vec, dim=2, index=t_indices).squeeze()
 
         # generalized current
         j = torch.sum(d * (x[:, :, 1] - x[:, :, 0]).double(), dim=-1).unsqueeze(-1)  # [B, T]
@@ -103,7 +124,8 @@ class NEEP(BaseModel):
 
         midpoints = (t[0, :, 1] + t[0, :, 0]) / 2
         total_entropy_production = torch.tensor(simpson(entropy_production_rate.cpu().numpy(),
-                                                            midpoints.cpu().numpy(), even="avg"))
+                                                             midpoints.cpu().numpy(), even="avg"))
+        #print(t.size(), entropy_production_rate.size())
 
         # if self.true_total_ep is not None:
         #     stats[f"ratio_to_true_total_ep"] = stats[f"total_entropy_production"] / self.true_total_ep
