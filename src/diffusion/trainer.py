@@ -65,7 +65,8 @@ class Trainer:
             self.schedulers.append(scheduler)
 
         lr_scheduler = kwargs.get('lr_scheduler', None)
-        self.lr_scheduler = create_instance(lr_scheduler['module'], lr_scheduler['name'], lr_scheduler['args'])
+        if lr_scheduler is not None:
+            self.lr_scheduler = create_instance(lr_scheduler['module'], lr_scheduler['name'], lr_scheduler['args'])
 
     def train(self):
         print('training parameters...')
@@ -140,8 +141,9 @@ class Trainer:
             scheduler.update_scheduled_value(self.model, epoch)
 
     def update_lr(self, epoch):
-        lr = self.lr_scheduler.get_scheduled_variable_value(epoch)
-        self.optimizer.param_groups[0]['lr'] = lr
+        if hasattr(self, 'lr_scheduler'):
+            lr = self.lr_scheduler.get_scheduled_variable_value(epoch)
+            self.optimizer.param_groups[0]['lr'] = lr
 
     def create_model(self, config):
         self.model = get_model(config, data_shape=self.data_loader.data_shape)

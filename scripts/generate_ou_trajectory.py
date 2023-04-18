@@ -1,3 +1,5 @@
+import os.path
+
 import click
 from pathlib import Path
 import numpy as np
@@ -13,35 +15,43 @@ from diffusion.utils import get_random_hermitian, get_random_diagonal_matrix
 @click.option('-c', '--config', 'config_path', required=True, type=click.Path(exists=True))
 
 def main(config_path: Path):
-    config = read_yaml(config_path)
-    seed = config.get('seed', 1)
+    configs = read_yaml(config_path)
+    config_list = expand_config(configs)
+    for config in config_list:
+        seed = config.get('seed', 1)
+        device = config.get('device', 'cpu')
+        name = config['name']
 
-    rng = np.random.default_rng(seed=seed)
+        kwargs = config['args']
+        dim = kwargs.get('dim', 1)
 
-    dim = config['dim']
+        rng = np.random.default_rng(seed=seed)
 
-    mean_0 = np.ones(dim)
-    var_0 = np.eye(dim)
+        mean_0 = np.ones(dim)
+        var_0 = np.eye(dim)
 
-    diagonal = config.get('diagonal', False)
-    if diagonal:
-        A = get_random_diagonal_matrix(dim, rng=rng)
-        B = get_random_diagonal_matrix(dim, allow_singular=False, rng=rng)
-    else:
-        A = get_random_hermitian(dim, rng=rng)
-        B = get_random_hermitian(dim, allow_singular=False, rng=rng)
+        diagonal = kwargs.get('diagonal', False)
+        unitary = kwargs.get('unitary', False)
+        if diagonal:
+            A = get_random_diagonal_matrix(dim, rng=rng)
+            B = get_random_diagonal_matrix(dim, allow_singular=False, rng=rng)
+        else:
+            A = get_random_hermitian(dim, rng=rng)
+            B = get_random_hermitian(dim, allow_singular=False, unitary=unitary, rng=rng)
 
-    T = config['T']
-    num_steps = config['num_steps']
-    num_samples = config['num_samples']
+        T = kwargs['T']
+        num_steps = kwargs['num_steps']
+        num_samples = kwargs['num_samples']
+        batch_size = kwargs['batch_size']
 
-    ou = MultivariateOUProcess(mean_0, var_0, A, B, T, num_steps=num_steps, diagonal=diagonal)
+        ou = MultivariateOUProcess(mean_0, var_0, A, B, T, num_steps=num_steps, diagonal=diagonal, device=device)
 
-    path = config['path']
-    ou.make_dataset(path, ensemble_size=num_samples)
+        path = kwargs['path']
+        save_dir = os.path.join(path, name.replace('args.', ''))
+        ou.make_dataset(save_dir, ensemble_size=num_samples, batch_size=batch_size)
 
 
-    print_experiment_info(config)
+        print_experiment_info(config)
 
 
 def print_experiment_info(config):
