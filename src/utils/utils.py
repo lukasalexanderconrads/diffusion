@@ -4,6 +4,7 @@ import yaml
 from importlib import import_module
 from collections import defaultdict
 import numpy as np
+import scipy as sp
 
 
 def read_yaml(path):
@@ -168,13 +169,18 @@ def integ2(x):
 def integ0(x):
     return np.ones(np.asarray(x).shape)*5
 
-def get_random_hermitian(dim, allow_singular=True, rng=None):
+def get_random_hermitian(dim, allow_singular=True, unitary=False, rng=None):
     """
     :param dim: size of the matrix
     :param allow_singular: if matrix is allowed to be singular
     :return: hermitian matrix of shape [dim, dim]
     """
     rng = np.random.default_rng() if rng is None else rng
+
+    if unitary:
+        A = rng.random((dim, dim))
+        Q, _ = np.linalg.qr(A)
+        return Q @ Q.T
     while True:
         A_root = rng.random((dim, dim))
         A = A_root @ A_root.T
@@ -223,6 +229,43 @@ def batched_diag(A):
     else:
         raise Exception('Expected 2 or 3 dimensions, but got', A.ndim)
 
+
+# def simpson_integrate(y, x, return_only_last=False):
+#     """
+#     :param y: function values of the function to integrate, tensor of shape [num_points]
+#     :param x: points where the function was evaluated, tensor of shape [num_points]
+#     :return:
+#     """
+#     if return_only_last:
+#         return (x[-1] - x[0]) / len(y)
+#     else:
+#         normalizer = (x[1:] - x[0]) / torch.arange(1, len(y), device=y.device)
+#         cumsum = torch.cumsum(y[:-1], dim=0)
+#         cumsum[0] = 0
+#         integral = normalizer * (y[0] / 2 + cumsum + y[1:])
+#     return integral
+
+def simpson_integrate(y, x, return_only_last=False):
+    """
+    y is a 1d-tensor of function values
+    x is a 1d-tensor of the points where y was sampled
+    returns: a 1d-tensor with length 1-len(y) that contains the value of the integral [x[0], x[n]] in entry n
+    """
+    if len(y) != len(x):
+        raise ValueError("y and x must have the same length.")
+    n = len(x)
+    if n % 2 == 0:
+        raise ValueError("n must be an odd integer.")
+
+    h = (x[-1] - x[0]) / (n - 1)
+    if return_only_last:
+        integral = ((h/3) * (y[:-2:2] + 4*y[1:-1:2] + y[2::2])).sum()
+    else:
+        indices = torch.arange(1, n, 2)
+        integral = torch.zeros_like(y)
+        integral[indices] = (h / 3) * (y[indices - 1:-1:2] + 4 * y[indices::2] + y[indices + 1::2])
+        integral = integral.cumsum(dim=0)
+    return integral
 
 
 if __name__ == '__main__':
