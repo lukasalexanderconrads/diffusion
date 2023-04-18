@@ -9,10 +9,12 @@ from tqdm import tqdm
 from diffusers import DDPMPipeline, DDIMPipeline, PNDMPipeline
 
 from diffusion.utils import *
+import torch as t
 
 
 class MultivariateOUProcess:
-    def __init__(self, mean_0, var_0, A, B, T, num_steps=1000, diagonal=False):
+    def __init__(self, mean_0, var_0, A, B, T, num_steps=1000, diagonal=False, device='cpu'):
+        self.device = torch.device(device)
         assert A.shape == B.shape == (*mean_0.shape, *mean_0.shape) == var_0.shape
         self.rng = np.random.default_rng()
         self.dt = T / num_steps
@@ -30,15 +32,7 @@ class MultivariateOUProcess:
             self.var_0 = var_0
             self.A = A
             self.B = B
-            # if self.diagonal and False:
-            #     self.mean = mean_0[None, :] * np.exp(-2 * np.outer(self.time, np.diag(A)))
-            #     diags = np.exp(-2 * np.outer(self.time, np.diag(A)))  # [t, d]
-            #     term_exp = np.apply_along_axis(np.diag, axis=1, arr=diags)  # [t, d, d]
-            #     A_inv = np.diag(1 / np.diag(A))
-            #     self.var = (var_0 - B**2 / 2 * A_inv) * term_exp + B**2 / 2 * A_inv
-            #
-            # else:
-            # Eigenvalue Decomposition
+
             lamda, S = np.linalg.eig(A)  # [d], [d, d]
             S_ct = S.copy()
             S = S.conjugate().T
@@ -73,6 +67,27 @@ class MultivariateOUProcess:
             D = B**2 / 2
             self.mean = self.mean_0 * np.exp(-A * self.time)
             self.var = (self.var_0 - D / A) * np.exp(-2 * A * self.time) + D / A
+
+    def get_trajectory_batch(self, batch_size=100):
+        x0 = self.rng.multivariate_normal(mean=self.mean_0,
+                                              cov=self.var_0,
+                                              size=batch_size)
+        x0 = t.from_numpy(x0).to(self.device)
+
+        normal_samples = t.randn((self.num_steps-1, batch_size, self.dim), device=self.device)
+        A = t.from_numpy(self.A).unsqueeze(0).expand(batch_size, -1, -1).to(self.device).float()
+        B = t.from_numpy(self.B).unsqueeze(0).expand(batch_size, -1, -1).to(self.device).float()
+        trajectory = [x0]
+        xt = x0.clone().unsqueeze(-1).float()
+
+        for i in range(normal_samples.size(0)):
+            shift = -t.bmm(A, xt) * self.dt
+            noise = t.bmm(B, normal_samples[i].unsqueeze(-1)) * np.sqrt(self.dt)
+            xt += shift + noise
+            trajectory.append(xt.clone().squeeze())
+
+        return torch.stack(trajectory, dim=0)
+
 
     def get_trajectory(self):
         if self.dim > 1:
@@ -117,22 +132,6 @@ class MultivariateOUProcess:
         mean = self.mean
         var = self.var
         if self.dim > 1:
-
-            # if self.diagonal and False:
-            #     ### THIS WORKS
-            #     # epr = 0
-            #     # for i in range(self.dim):
-            #     #     d = B[i, i] ** 2 / 2
-            #     #     a = A[i, i]
-            #     #     mean = self.mean[:, i]
-            #     #     var = self.var[:, i, i]
-            #     #     epr += a**2 / d * (mean**2 + var) + d / var - 2 * a
-            #     d = np.diag(B**2 / 2)
-            #     a = np.diag(A)
-            #     var = batched_diag(self.var)
-            #     epr = np.sum(a**2 / d * (mean**2 + var) + d / var - 2 * a, axis=1)
-            #
-            #     return epr
             D = B @ B.T / 2
             inv_D = np.linalg.inv(D)
             inv_var = np.linalg.inv(var)
@@ -154,16 +153,25 @@ class MultivariateOUProcess:
         cumulative_epr = [simpson(epr[:t], dx=self.dt) for t in range(1, len(epr))]
         return cumulative_epr
 
-    def make_dataset(self, save_dir, ensemble_size=10000):
+    def make_dataset(self, save_dir, ensemble_size=10000, batch_size=1000):
         #  create dir if not exists
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         trajectory_list = []
-        for _ in tqdm(range(ensemble_size)):
-            trajectory = self.get_trajectory()
-            trajectory_list.append(trajectory)
+        if self.dim > 1:
+            for _ in tqdm(range(ensemble_size // batch_size)):
+                trajectory = self.get_trajectory_batch(batch_size)
+                trajectory_list.append(trajectory.cpu())
+            trajectories = torch.cat(trajectory_list, dim=1)
+            trajectories = t.transpose(trajectories, 0, 1).cpu().numpy()
 
-        trajectories = np.stack(trajectory_list, axis=0)
+
+        else:
+            for _ in tqdm(range(ensemble_size)):
+                trajectory = self.get_trajectory()
+                trajectory_list.append(trajectory)
+
+            trajectories = np.stack(trajectory_list, axis=0)
         time_points = np.expand_dims(self.time, 0).repeat(ensemble_size, axis=0)
         exact_epr = self.get_exact_epr()
 
@@ -184,36 +192,59 @@ class MultivariateOUProcess:
 
 
 
-class DDPM():
-    r"""
-    This model inherits from [`DiffusionPipeline`]. Check the superclass documentation for the generic methods the
-    library implements for all the pipelines (such as downloading or saving, running on a particular device, etc.)
+class DDPM:
 
-    Parameters:
-        unet ([`UNet2DModel`]): U-Net architecture to denoise the encoded image.
-        scheduler ([`SchedulerMixin`]):
-            A scheduler to be used in combination with `unet` to denoise the encoded image. Can be one of
-            [`DDPMScheduler`], or [`DDIMScheduler`].
-    """
-
-    def __init__(self, num_steps, device='cpu'):
+    def __init__(self, device='cpu'):
         self.device = device
         pipeline = DDPMPipeline.from_pretrained('google/ddpm-cifar10-32')
         self.unet = pipeline.unet
         self.scheduler = pipeline.scheduler
-        self.time_points = torch.arange(0, len(self.scheduler))
 
-    def forward(self, clean_images):
+    def forward(self, batch_size=100, num_steps=1000, rng=None):
         """
         :param clean_images: batch of clean images of shape [batch_size, 3, 32, 32]
         :return:
         """
-        print(clean_images.size())
-        batch_size = clean_images.size(0)
-        noise = torch.randn((batch_size, len(self.scheduler),  3, 32, 32)).to(self.device)
-        time_points = self.time_points.unsqueeze(0).repeat(batch_size, 1)
-        noisy_images = self.scheduler.add_noise(clean_images, noise, time_points)
-        print(noisy_images.size())
+        rng = torch.Generator(self.device) if rng is None else rng
+        self.scheduler.set_timesteps(num_inference_steps=num_steps)
+        image_shape = (batch_size, self.unet.config.in_channels, *self.unet.config.sample_size)
+        image = torch.randn(image_shape, generator=rng, device=self.device)
+
+        image_list = []
+        for t in tqdm(self.scheduler.timesteps):
+            # 1. predict noise model_output
+            model_output = self.unet(image, t).sample
+
+            # 2. compute previous image: x_t -> x_t-1
+            image = self.scheduler.step(model_output, t, image, generator=rng).prev_sample
+
+            image_list.append(image)
+
+        # image = (image / 2 + 0.5).clamp(0, 1)
+        # image = image.cpu().permute(0, 2, 3, 1).numpy()
+        return image_list
+    def make_dataset(self, save_dir, batch_size=100, num_steps=1000, ensemble_size=1000):
+        #  create dir if not exists
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
+        rng = torch.Generator(self.device)
+
+        trajectory_list = []
+        for _ in tqdm(range(ensemble_size // batch_size)):
+            trajectory = self.forward(batch_size=batch_size, num_steps=num_steps, rng=rng)
+            print(torch.tensor(trajectory).size())
+            trajectory_list.append(trajectory.cpu())
+        trajectories = torch.cat(trajectory_list, dim=1)
+        trajectories = t.transpose(trajectories, 0, 1).cpu().numpy()
+
+
+        time_points = np.expand_dims(np.linspace(0, 1, num_steps), 0).repeat(ensemble_size, axis=0)
+
+        np.save(os.path.join(save_dir, 'trajectories.npy'), trajectories)
+        np.save(os.path.join(save_dir, 'time_points.npy'), time_points)
+        print('saved trajecories of shape', trajectories.shape)
+        print('saved time points of shape', time_points.shape)
 
 
 

@@ -8,7 +8,7 @@ model:
   name: NEEP
   args:
     estimator_type: simple
-    layer_dims: [!!python/tuple [300, 300, 300]]
+    layer_dims: [!!python/tuple [10, 100]]
 
 loader:
   module: diffusion.data.dataloaders
@@ -30,7 +30,7 @@ trainer:
   module: diffusion.trainer
   name: EntropyTrainer
   args:
-    n_epochs: 1000
+    n_epochs: 500
     bm_metric: loss
     #early_stop_criterion: 100 # if no improvement over this many epochs, stop training
     log_dir: /rdata/results

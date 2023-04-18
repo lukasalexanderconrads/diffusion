@@ -1,4 +1,4 @@
-name: entropy/ou_process
+name: entropy/ou_process/
 device: cuda:0
 num_runs: 1
 seed: 1
@@ -8,15 +8,16 @@ model:
   name: NEEP
   args:
     estimator_type: simple
-    layer_dims: !!python/tuple [10, 10, 10]
+    layer_dims: !!python/tuple [2]
+    kernel: global_exponential
 
 loader:
   module: diffusion.data.dataloaders
   name: DataLoaderTrajectory
   args:
-    batch_size: 64
+    batch_size: 32
     train_fraction: .8
-    path: /raid/data/neep/ou_process
+    path: [/raid/data/neep/mv_ou_process/_dim_1024_T_0.01_num_steps_100_num_samples_1000]
     standardize: false
 
 
@@ -32,6 +33,13 @@ trainer:
   args:
     n_epochs: 500
     bm_metric: loss
-    early_stop_criterion: 50 # if no improvement over this many epochs, stop training
+    early_stop_criterion: 200 # if no improvement over this many epochs, stop training
     log_dir: /rdata/results
     save_dir: /rdata/results
+
+    lr_scheduler:
+      module: diffusion.schedulers
+      name: HalvingScheduler
+      args:
+        start_value: .001
+        halve_after_epochs: !!python/tuple [100, 200]

@@ -1,0 +1,11 @@
+name: ddpm/
+device: cuda:1
+num_runs: 1
+seed: 1
+
+
+args:
+  num_steps: [1000]      # number of time steps
+  num_samples: [1000]    # ensemble size
+  batch_size: 100
+  path: /raid/data/neep
