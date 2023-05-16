@@ -2,8 +2,8 @@ import click
 from pathlib import Path
 import torch
 
-from diffusion.utils import read_yaml, get_trainer
-from diffusion.expand_config import expand_config
+from diffusion.utils.helpers import read_yaml, get_trainer
+from diffusion.utils.expand_config import expand_config
 
 
 @click.command()

@@ -1,15 +1,18 @@
 import os
 import pickle
+from abc import ABC, abstractmethod
+import math
 
 import torch
+import torch as t
 import numpy as np
 from scipy.integrate import simpson
 from tqdm import tqdm
 
-from diffusers import DDPMPipeline, DDIMPipeline, PNDMPipeline
+from diffusers import DDPMPipeline, DDIMPipeline, PNDMPipeline, ScoreSdeVeScheduler, UNet2DModel
 
-from diffusion.utils import *
-import torch as t
+from diffusion.utils.helpers import *
+from diffusion.utils.metrics import inception_score, fid_score
 
 
 class MultivariateOUProcess:
@@ -26,7 +29,7 @@ class MultivariateOUProcess:
         self.time = np.linspace(0, self.T, self.num_steps, endpoint=True)
         self.diagonal = diagonal
 
-
+        print('computing mean and variance...')
         if self.dim > 1:
             self.mean_0 = mean_0
             self.var_0 = var_0
@@ -158,6 +161,7 @@ class MultivariateOUProcess:
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         trajectory_list = []
+        print('sampling trajectories...')
         if self.dim > 1:
             for _ in tqdm(range(ensemble_size // batch_size)):
                 trajectory = self.get_trajectory_batch(batch_size)
@@ -173,6 +177,7 @@ class MultivariateOUProcess:
 
             trajectories = np.stack(trajectory_list, axis=0)
         time_points = np.expand_dims(self.time, 0).repeat(ensemble_size, axis=0)
+        print('computing exact epr...')
         exact_epr = self.get_exact_epr()
 
         np.save(os.path.join(save_dir, 'trajectories.npy'), trajectories)
@@ -191,27 +196,109 @@ class MultivariateOUProcess:
 
 
 
+class DiffusionModel(ABC):
+    def __init__(self, data_shape, **kwargs):
+        self.data_shape = data_shape
+        self.device = torch.device(kwargs.get('device', 'cpu'))
+        self.batch_size = kwargs.get('batch_size', 100)
+        self.num_steps = kwargs.get('num_steps', 1000)
+        self.ensemble_size = kwargs.get('num_samples', 1000)
 
-class DDPM:
+    @abstractmethod
+    def forward(self, rng=None):
+        pass
 
-    def __init__(self, device='cpu'):
-        self.device = device
+    def make_dataset(self, save_dir):
+        #  create dir if not exists
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
+        rng = torch.Generator(self.device)
+        print('sampling trajectories...')
+        trajectory_list = []
+        for _ in tqdm(range(self.ensemble_size // self.batch_size)):
+            trajectory = self.forward(rng=rng)
+            trajectory_list.append(trajectory.cpu())
+        trajectories = torch.cat(trajectory_list, dim=0)
+        trajectories = trajectories.flatten(start_dim=2).numpy()
+
+        time_points = np.expand_dims(np.linspace(0, 1, self.num_steps), 0).repeat(self.ensemble_size, axis=0)
+
+        np.save(os.path.join(save_dir, 'trajectories.npy'), trajectories)
+        np.save(os.path.join(save_dir, 'time_points.npy'), time_points)
+        print('saved trajecories of shape', trajectories.shape)
+        print('saved time points of shape', time_points.shape)
+
+
+    def metrics(self, images_true):
+        rng = torch.Generator(self.device)
+        num_images = images_true.size(0)
+        num_batches = math.ceil(images_true.size(0) / self.batch_size)
+
+        images_pred_list = []
+        for _ in tqdm(range(num_batches)):
+            trajectory = self.forward(rng=rng)
+            images_pred_list.append(trajectory[:, -1])
+        images_pred = torch.cat(images_pred_list, dim=0)[:num_images]
+        images_pred = (images_pred / 2 + 0.5).clamp(0, 1)
+
+        inception_score_val = inception_score(images_pred, batch_size=self.batch_size, device=self.device)
+        fid_score_val = fid_score(images_pred, images_true, batch_size=self.batch_size, device=self.device)
+
+        return {'IS': inception_score_val, 'FID': fid_score_val}
+
+class DDPM(DiffusionModel):
+
+    def __init__(self, data_shape, **kwargs):
+        super().__init__(data_shape, **kwargs)
         pipeline = DDPMPipeline.from_pretrained('google/ddpm-cifar10-32')
-        self.unet = pipeline.unet
+        self.unet = pipeline.unet.to(self.device)
         self.scheduler = pipeline.scheduler
 
-    def forward(self, batch_size=100, num_steps=1000, rng=None):
+    def forward(self, rng=None):
         """
         :param clean_images: batch of clean images of shape [batch_size, 3, 32, 32]
         :return:
         """
         rng = torch.Generator(self.device) if rng is None else rng
-        self.scheduler.set_timesteps(num_inference_steps=num_steps)
-        image_shape = (batch_size, self.unet.config.in_channels, *self.unet.config.sample_size)
+        self.scheduler.set_timesteps(num_inference_steps=self.num_steps, device=self.device)
+        image_shape = (self.batch_size, self.unet.config.in_channels, self.unet.config.sample_size, self.unet.config.sample_size)
         image = torch.randn(image_shape, generator=rng, device=self.device)
 
         image_list = []
-        for t in tqdm(self.scheduler.timesteps):
+        for t in tqdm(self.scheduler.timesteps, leave=False):
+            # 1. predict noise model_output
+            model_output = self.unet(image, t).sample
+
+            # 2. compute previous image: x_t -> x_t-1
+            image = self.scheduler.step(model_output, t, image, generator=rng).prev_sample
+
+            image_list.append(image.clone())
+
+        # image = (image / 2 + 0.5).clamp(0, 1)
+        # image = image.cpu().permute(0, 2, 3, 1).numpy()
+        return torch.stack(image_list, dim=1)
+
+class DDIM(DiffusionModel):
+
+    def __init__(self, data_shape, **kwargs):
+        super().__init__(data_shape, **kwargs)
+        pipeline = DDIMPipeline.from_pretrained('google/ddpm-cifar10-32')
+        self.unet = pipeline.unet.to(self.device)
+        self.scheduler = pipeline.scheduler
+
+    def forward(self, rng=None):
+        """
+        :param clean_images: batch of clean images of shape [batch_size, 3, 32, 32]
+        :return:
+        """
+        rng = torch.Generator(self.device) if rng is None else rng
+        self.scheduler.set_timesteps(num_inference_steps=self.num_steps)
+        image_shape = (self.batch_size, self.unet.config.in_channels, self.unet.config.sample_size, self.unet.config.sample_size)
+        image = torch.randn(image_shape, generator=rng, device=self.device)
+
+        image_list = []
+        for t in tqdm(self.scheduler.timesteps, leave=False):
             # 1. predict noise model_output
             model_output = self.unet(image, t).sample
 
@@ -222,29 +309,39 @@ class DDPM:
 
         # image = (image / 2 + 0.5).clamp(0, 1)
         # image = image.cpu().permute(0, 2, 3, 1).numpy()
-        return image_list
-    def make_dataset(self, save_dir, batch_size=100, num_steps=1000, ensemble_size=1000):
-        #  create dir if not exists
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-
-        rng = torch.Generator(self.device)
-
-        trajectory_list = []
-        for _ in tqdm(range(ensemble_size // batch_size)):
-            trajectory = self.forward(batch_size=batch_size, num_steps=num_steps, rng=rng)
-            print(torch.tensor(trajectory).size())
-            trajectory_list.append(trajectory.cpu())
-        trajectories = torch.cat(trajectory_list, dim=1)
-        trajectories = t.transpose(trajectories, 0, 1).cpu().numpy()
+        return torch.stack(image_list, dim=1)
 
 
-        time_points = np.expand_dims(np.linspace(0, 1, num_steps), 0).repeat(ensemble_size, axis=0)
+class ScoreSDE(DiffusionModel):
 
-        np.save(os.path.join(save_dir, 'trajectories.npy'), trajectories)
-        np.save(os.path.join(save_dir, 'time_points.npy'), time_points)
-        print('saved trajecories of shape', trajectories.shape)
-        print('saved time points of shape', time_points.shape)
+    def __init__(self, data_shape, **kwargs):
+        super().__init__(data_shape, **kwargs)
+        #pipeline = ScoreSdeVePipeline.from_pretrained('fusing/cifar10-ncsnpp-ve')
+        self.unet = UNet2DModel.from_pretrained('google/ddpm-cifar10-32').to(self.device)
+        self.scheduler = ScoreSdeVeScheduler.from_pretrained('google/ncsnpp-church-256')
+    def forward(self, rng=None):
+        rng = torch.Generator(self.device) if rng is None else rng
+        self.scheduler.set_timesteps(num_inference_steps=self.num_steps)
+        image_shape = (self.batch_size, self.unet.config.in_channels, self.unet.config.sample_size, self.unet.config.sample_size)
+        image = torch.randn(image_shape, generator=rng, device=self.device)
 
+        self.scheduler.set_timesteps(self.num_steps)
+        self.scheduler.set_sigmas(self.num_steps)
 
+        image_list = []
+        for i, t in tqdm(enumerate(self.scheduler.timesteps), leave=False):
+            sigma_t = self.scheduler.sigmas[i] * torch.ones(self.batch_size, device=self.device)
 
+            # correction step
+            for _ in range(self.scheduler.config.correct_steps):
+                model_output = self.unet(image, sigma_t).sample
+                image = self.scheduler.step_correct(model_output, image, generator=rng).prev_sample
+
+            # prediction step
+            model_output = self.unet(image, sigma_t).sample
+            output = self.scheduler.step_pred(model_output, t, image, generator=rng)
+
+            image = output.prev_sample
+            image_list.append(image)
+
+        return torch.stack(image_list, dim=1)

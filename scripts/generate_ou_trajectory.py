@@ -4,11 +4,10 @@ import click
 from pathlib import Path
 import numpy as np
 
-from diffusion.utils import read_yaml, get_trainer
-from diffusion.expand_config import expand_config
+from diffusion.utils.helpers import read_yaml, get_trainer, get_random_hermitian, get_random_diagonal_matrix
+from diffusion.utils.expand_config import expand_config
 
 from diffusion.models.trajectory_generator import MultivariateOUProcess
-from diffusion.utils import get_random_hermitian, get_random_diagonal_matrix
 
 
 @click.command()
@@ -36,7 +35,7 @@ def main(config_path: Path):
             A = get_random_diagonal_matrix(dim, rng=rng)
             B = get_random_diagonal_matrix(dim, allow_singular=False, rng=rng)
         else:
-            A = get_random_hermitian(dim, rng=rng)
+            A = get_random_hermitian(dim, unitary=unitary, rng=rng)
             B = get_random_hermitian(dim, allow_singular=False, unitary=unitary, rng=rng)
 
         T = kwargs['T']

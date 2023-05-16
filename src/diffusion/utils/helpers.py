@@ -2,7 +2,6 @@ import torch
 from torch import nn
 import yaml
 from importlib import import_module
-from collections import defaultdict
 import numpy as np
 import scipy as sp
 
@@ -22,7 +21,7 @@ def read_yaml(path):
 
     return parsed_yaml
 
-def create_instance(module_name, class_name, kwargs, *args):
+def create_instance(module_name: str, class_name: str, kwargs, *args):
     """
     create instance of a class
     :param module_name: str, module the class is in
@@ -39,39 +38,20 @@ def create_instance(module_name, class_name, kwargs, *args):
     return instance
 
 
-class MetricAccumulator:
-    def __init__(self):
-        self.concat_keys = []
-        self.reset()
-
-    def update(self, metrics):
-        for key, value in metrics.items():
-            if key in self.concat_keys:
-                self.metrics[key] = [] if self.metrics[key] == 0 else self.metrics[key]
-                self.metrics[key] += [value]
-            else:
-                self.metrics[key] += value
-        self.counter += 1
-
-    def get_average(self):
-        for key in self.metrics.keys():
-            if not key in self.concat_keys:
-                self.metrics[key] /= self.counter
-        return self.metrics
-
-    def reset(self):
-        self.metrics = defaultdict(lambda: 0)
-        self.counter = 0
-
-    def exclude_keys_from_average(self, keys):
-        """
-        exclude some keys from averaging, collect them in a list instead
-        :param keys: list of str
-        """
-        self.concat_keys += keys
 
 
-def create_mlp(layer_dims, activation_fn=nn.ReLU(), out_activation=False, dropout=.0, out_dropout=False, layer_normalization=True, out_layernorm=False):
+def create_mlp(layer_dims, activation_fn=nn.ReLU(), out_activation=False, dropout=.0, out_dropout=False, layer_normalization=False, out_layernorm=False):
+    """
+    create a Multilayer Perceptron
+    :param layer_dims: dimensions of the MLP layers, list of int
+    :param activation_fn: activation function after hidden layers, function
+    :param out_activation: activation function after output layer, function
+    :param dropout: dropout applied after hidden layers, float
+    :param out_dropout: dropout applied after output layer, float
+    :param layer_normalization: if layer normalization is applied after hidden layers, bool
+    :param out_layernorm: if layer normalization is applied after output layer, bool
+    :return:
+    """
     n_layers = len(layer_dims)
     layers = []
     for layer_idx in range(n_layers - 1):
@@ -180,7 +160,7 @@ def get_random_hermitian(dim, allow_singular=True, unitary=False, rng=None):
     if unitary:
         A = rng.random((dim, dim))
         Q, _ = np.linalg.qr(A)
-        return Q @ Q.T
+        return Q
     while True:
         A_root = rng.random((dim, dim))
         A = A_root @ A_root.T

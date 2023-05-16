@@ -60,6 +60,34 @@ class MNISTDataset(ImageDataset):
 
 
         return data, labels
+class CIFAR10Dataset(ImageDataset):
+    def __init__(self, device, set='train', **kwargs):
+        self.set = set
+        self.seed = kwargs.get('seed', 1)
+        self.path = kwargs.get('path', './data')
+        super(CIFAR10Dataset, self).__init__(device)
+
+    def _get_data(self):
+        if self.set == 'train':
+            dataset = torchvision.datasets.CIFAR10(self.path, train=True, download=True,
+                                                 transform=torchvision.transforms.ToTensor())
+        else:
+            dataset = torchvision.datasets.CIFAR10(self.path, train=False, download=True,
+                                                 transform=torchvision.transforms.ToTensor())
+            set_len = len(dataset) // 2
+        data = dataset.data
+        labels = dataset.targets
+        data = torch.tensor(data, dtype=torch.float32).permute(0, 3, 1, 2) / 255
+        labels = torch.tensor(labels, dtype=torch.int64)
+
+        if self.set == 'test':
+            data = data[:set_len]
+            labels = labels[:set_len]
+        elif self.set == 'valid':
+            data = data[set_len:]
+            labels = labels[set_len:]
+
+        return data, labels
 
 
 class TrajectoryDataset(Dataset):
@@ -84,7 +112,7 @@ class TrajectoryDataset(Dataset):
         self.time_points = time_points.float()   # [batch_size, traject_length, 2]
 
         self.data_shape = self.data.size(-1)
-        self.max_time = torch.max(time_points)
+        self.max_time = float(torch.max(time_points))
 
     def _get_data(self):
         path_to_data = os.path.join(self.path, 'trajectories.npy')

@@ -9,7 +9,8 @@ from tqdm import tqdm
 import yaml
 
 from torch.utils.tensorboard import SummaryWriter
-from diffusion.utils import MetricAccumulator, get_data_loader, get_model, create_instance
+from diffusion.utils.helpers import get_data_loader, get_model, create_instance
+from diffusion.utils.metrics import MetricAccumulator
 from scipy.integrate import cumtrapz, simpson
 
 class Trainer:

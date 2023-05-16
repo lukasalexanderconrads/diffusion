@@ -3,7 +3,7 @@ from torch import nn
 from scipy.integrate import quad, simpson
 
 from diffusion.models.base import BaseModel
-from diffusion.utils import create_mlp, simpson_integrate
+from diffusion.utils.helpers import create_mlp, simpson_integrate
 from matplotlib import pyplot as plt
 
 
@@ -44,8 +44,10 @@ class NEEP(BaseModel):
             layer_dims = [data_dim] + layer_dims
             self.exp_params = nn.Parameter(torch.randn((4, data_dim), device=self.device))
 
-        self.mlp = create_mlp(layer_dims).to(self.device)
+        self.dropout = kwargs.get('dropout', .0)
+        self.mlp = create_mlp(layer_dims, dropout=self.dropout).to(self.device)
 
+        print(self.mlp)
 
         # if self.breathing_parabola_model:
         #     p = (10.0, 1.0)
