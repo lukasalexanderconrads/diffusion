@@ -69,23 +69,26 @@ class Trainer:
         if lr_scheduler is not None:
             self.lr_scheduler = create_instance(lr_scheduler['module'], lr_scheduler['name'], lr_scheduler['args'])
 
-    def train(self):
+    def train(self, return_metrics=False):
         print('training parameters...')
         for epoch in tqdm(range(self.n_epochs), desc='epochs'):
             self.model.train()
             torch.set_grad_enabled(True)
-            self.train_epoch(epoch)
+            train_metrics = self.train_epoch(epoch, return_metrics)
 
             self.model.eval()
             torch.set_grad_enabled(False)
-            self.valid_epoch(epoch)
+            valid_metrics = self.valid_epoch(epoch, return_metrics)
             if self.check_early_stopping():
                 break
 
         self.writer.flush()
         self.writer.close()
 
-    def train_epoch(self, epoch):
+        if return_metrics:
+            return train_metrics, valid_metrics
+
+    def train_epoch(self, epoch, return_metrics=False):
         self.update_scheduled_values(epoch)
         self.metric_avg.reset()
         for minibatch in tqdm(self.data_loader.train, desc='train set', leave=False):
@@ -94,16 +97,22 @@ class Trainer:
             self.metric_avg.update(metrics)
         metrics = self.metric_avg.get_average()
         self.writer.add_scalar('train/loss', metrics['loss'], epoch)
-        self.log(metrics, epoch)
+        self.log(metrics.copy(), epoch)
 
-    def valid_epoch(self, epoch):
+        if return_metrics:
+            return metrics
+
+    def valid_epoch(self, epoch, return_metrics=False):
         self.metric_avg.reset()
         for minibatch in tqdm(self.data_loader.valid, desc='validation set', leave=False):
             metrics = self.model.valid_step(minibatch)
             self.metric_avg.update(metrics)
         metrics = self.metric_avg.get_average()
-        self.log(metrics, epoch, 'valid')
+        self.log(metrics.copy(), epoch, 'valid')
         self.save_model(metrics)
+
+        if return_metrics:
+            return metrics
 
     def log(self, metrics, epoch, split='train'):
         for key, value in metrics.items():
@@ -153,12 +162,13 @@ class EntropyTrainer(Trainer):
     def __init__(self, config, **kwargs):
         super(EntropyTrainer, self).__init__(config, **kwargs)
         self.metric_avg.exclude_keys_from_average(['current'])
+        self.log_plots_every_n_epochs = kwargs.get('log_plots_every_n_epochs', 1)
 
     def log(self, metrics, epoch, split='train'):
         if split == 'valid':
             current = metrics.pop('current')
             time_point = metrics.pop('time_point')
-            if epoch % 50 == 0:
+            if epoch % self.log_plots_every_n_epochs == 0:
                 self.log_entropy_production_rate_plot(current, time_point, epoch)
                 self.log_current_plot(current, time_point, epoch)
                 self.log_loss_plot(time_point, epoch)
@@ -221,6 +231,7 @@ class EntropyTrainer(Trainer):
         fig = plt.gcf()
         self.writer.add_figure(tag='ep', figure=fig, global_step=epoch)
         self.writer.add_scalar('valid/total_entropy_production_var', estimated_cum_epr[-1], epoch)
+
 
 
     def log_current_plot(self, current, time_point, epoch):

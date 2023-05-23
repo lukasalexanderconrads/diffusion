@@ -19,7 +19,7 @@ class NEEP(BaseModel):
 
         #self.breathing_parabola_model = kwargs.get('breathing_parabola_model', False)
 
-        layer_dims = kwargs.get('layer_dims')
+        layer_dims = kwargs.get('layer_dims').copy()
 
 
         self.max_time = kwargs.get('max_time')
