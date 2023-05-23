@@ -36,10 +36,12 @@ class MultivariateOUProcess:
             self.A = A
             self.B = B
 
+            print('EVD...')
             lamda, S = np.linalg.eig(A)  # [d], [d, d]
             S_ct = S.copy()
             S = S.conjugate().T
 
+            print('mean...')
             # exp(-At) @ mu_0
             diags = np.exp(-np.outer(self.time, lamda))  # [t, d]
             term_exp = batched_diag(diags)  # [t, d, d]
@@ -51,11 +53,13 @@ class MultivariateOUProcess:
             # pairwise eigenvalue sums
             lamda_sums = np.add.outer(lamda, lamda)
 
+            print('matrix G...')
             # matrix G
             SBBS = S @ B @ B.T @ S_ct
             G = SBBS / (lamda_sums) * (1 - np.exp(-np.einsum('ij,t->tij', lamda_sums, self.time)))
             #G = (B @ B.T) / (lamda_sums) * (1 - np.exp(-np.einsum('ij,t->tij', lamda_sums, self.time)))
 
+            print('variance...')
             # variance
             diags = np.exp(-2 * np.outer(self.time, lamda))  # [t, d]
             term_exp = batched_diag(diags)  # [t, d, d]
@@ -157,33 +161,28 @@ class MultivariateOUProcess:
         return cumulative_epr
 
     def make_dataset(self, save_dir, ensemble_size=10000, batch_size=1000):
-        #  create dir if not exists
+        # create dir if not exists
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
-        trajectory_list = []
+        traject_file = os.path.join(save_dir, 'trajectories.dat')
+        traject_shape = (ensemble_size, self.num_steps, self.dim)
+        file_map = np.memmap(traject_file, dtype='float32', mode='w+', shape=traject_shape)
         print('sampling trajectories...')
-        if self.dim > 1:
-            for _ in tqdm(range(ensemble_size // batch_size)):
-                trajectory = self.get_trajectory_batch(batch_size)
-                trajectory_list.append(trajectory.cpu())
-            trajectories = torch.cat(trajectory_list, dim=1)
-            trajectories = t.transpose(trajectories, 0, 1).cpu().numpy()
+        for batch_idx in tqdm(range(ensemble_size // batch_size)):
+            trajectory = self.get_trajectory_batch(batch_size)
+            trajectory = np.transpose(trajectory.cpu().numpy(), axes=(1, 0, 2))
+            start_idx = batch_idx * batch_size
+            end_idx = (batch_idx + 1) * batch_size
+            file_map[start_idx:end_idx] = trajectory
 
-
-        else:
-            for _ in tqdm(range(ensemble_size)):
-                trajectory = self.get_trajectory()
-                trajectory_list.append(trajectory)
-
-            trajectories = np.stack(trajectory_list, axis=0)
+        file_map.flush()
         time_points = np.expand_dims(self.time, 0).repeat(ensemble_size, axis=0)
         print('computing exact epr...')
         exact_epr = self.get_exact_epr()
 
-        np.save(os.path.join(save_dir, 'trajectories.npy'), trajectories)
         np.save(os.path.join(save_dir, 'time_points.npy'), time_points)
         np.save(os.path.join(save_dir, 'exact_epr.npy'), exact_epr)
-        print('saved trajecories of shape', trajectories.shape)
+        print('saved trajectories of shape', traject_shape)
         print('saved time points of shape', time_points.shape)
         print('saved exact epr of shape', exact_epr.shape)
 
