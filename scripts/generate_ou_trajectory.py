@@ -4,7 +4,7 @@ import click
 from pathlib import Path
 import numpy as np
 
-from diffusion.utils.helpers import read_yaml, get_trainer, get_random_hermitian, get_random_diagonal_matrix
+from diffusion.utils.helpers import *
 from diffusion.utils.expand_config import expand_config
 
 from diffusion.models.trajectory_generator import MultivariateOUProcess
@@ -30,13 +30,12 @@ def main(config_path: Path):
         var_0 = np.eye(dim)
 
         diagonal = kwargs.get('diagonal', False)
-        unitary = kwargs.get('unitary', False)
         if diagonal:
             A = get_random_diagonal_matrix(dim, rng=rng)
             B = get_random_diagonal_matrix(dim, allow_singular=False, rng=rng)
         else:
-            A = get_random_hermitian(dim, unitary=unitary, rng=rng)
-            B = get_random_hermitian(dim, allow_singular=False, unitary=unitary, rng=rng)
+            A = get_well_conditioned_hermitian(dim, rng=rng)
+            B = get_well_conditioned_hermitian(dim, allow_singular=False, rng=rng)
 
         T = kwargs['T']
         num_steps = kwargs['num_steps']
