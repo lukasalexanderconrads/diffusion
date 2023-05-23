@@ -60,3 +60,17 @@ class DataLoaderTrajectoryAE(DataLoaderTrajectory):
         self.train = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
         self.valid = DataLoader(valid_set, batch_size=batch_size, shuffle=True, drop_last=True)
         self.test = DataLoader(test_set, batch_size=batch_size, shuffle=True, drop_last=True)
+
+
+class DataLoaderTrajectoryLazy:
+    def __init__(self, batch_size: int = 1, **kwargs):
+        train_set = TrajectoryDatasetLazy(set='train', **kwargs)
+        valid_set = TrajectoryDatasetLazy(set='valid', **kwargs)
+        test_set = TrajectoryDatasetLazy(set='test', **kwargs)
+
+        self.data_shape = train_set.data_shape
+        self.max_time = train_set.max_time
+
+        self.train = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
+        self.valid = DataLoader(valid_set, batch_size=batch_size, shuffle=True, drop_last=True)
+        self.test = DataLoader(test_set, batch_size=batch_size, shuffle=True, drop_last=True)

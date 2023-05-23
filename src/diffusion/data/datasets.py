@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset
 import torchvision
 import os
+import re
 import numpy as np
 from math import floor, ceil
 
@@ -159,6 +160,70 @@ class TrajectoryDataset(Dataset):
 
     def __len__(self):
         return self.data.size(0)
+class TrajectoryDatasetLazy(Dataset):
+    """
+    Data set for trajectories. Loads
+    trajectories from trajectories.npy saved as shape [n_trajects, traject_length, data_dim]
+    time points from and time_points.npy saved as shape [n_trajects, traject_length]
+    and returns them as pairs of subsequent time points
+    data: trajectory pairs of shape [batch_size, traject_len, 2, data dim]
+    time_points: time points of shape [batch_size, traject_len, 2]
+    """
+    def __init__(self, set='train', **kwargs):
+        super(TrajectoryDatasetLazy, self).__init__()
+        self.set = set
+        self.seed = kwargs.get('seed', 1)
+        self.path = kwargs.get('path', './data')
+        self.train_fraction = kwargs.get('train_fraction', .8)
+
+        self._prep_data()
+
+        self.data_shape = self.data.shape[-1]
+        self.max_time = float(np.max(self.time_points))
+
+    def _prep_data(self):
+        path_to_data = os.path.join(self.path, 'trajectories.dat')
+        path_to_time_points = os.path.join(self.path, 'time_points.npy')
+        path_to_exact_epr = os.path.join(self.path, 'exact_epr.npy')
+
+        data_shape = (get_values_from_file_name(self.path, 'num_samples'),
+                      get_values_from_file_name(self.path, 'num_steps'),
+                      get_values_from_file_name(self.path, 'dim'))
+        self.data = np.memmap(path_to_data, dtype='float32', mode='r', shape=data_shape)  # [n_trajects, traject_length, data_dim]
+        print(self.data.shape)
+        self.time_points = np.load(path_to_time_points, mmap_mode='r')    # [n_trajects, traject_length]
+        if os.path.exists(path_to_exact_epr):
+            self.exact_epr = torch.from_numpy(np.load(path_to_exact_epr))[:-1]
+
+        # shuffle data and split according to set
+        rng = np.random.default_rng(self.seed)
+        shuffled_indices = rng.permutation(self.data.shape[0])
+        n_train_samples = floor(self.train_fraction * self.data.shape[0])
+        n_valid_samples = ceil((1 - self.train_fraction) / 2 * self.data.shape[0])
+        if self.set == 'train':
+            self.indices = shuffled_indices[:n_train_samples]
+        if self.set == 'valid':
+            self.indices = shuffled_indices[n_train_samples:(n_train_samples + n_valid_samples)]
+        if self.set == 'test':
+            self.indices = shuffled_indices[(n_train_samples + n_valid_samples):]
+    def __getitem__(self, item):
+        data = torch.tensor(self.data[self.indices[item]].copy()).float()
+        time_points = torch.tensor(self.time_points[self.indices[item]].copy()).float()
+        dim = data.shape[-1]
+
+        data = data.repeat_interleave(2, dim=0)  # [2 * traject_length, data_dim]
+        data = data[1:-1]  # [(traject_length - 1) * 2, data_dim]
+        data = data.reshape(-1, 2, dim)  # [traject_length - 1, 2, data_dim]
+
+        time_points = time_points.repeat_interleave(2, dim=0)
+        time_points = time_points[1:-1]
+        time_points = time_points.reshape(-1, 2)
+
+        return {'data': data,
+                'time_point': time_points}
+
+    def __len__(self):
+        return self.indices.shape[0]
 
 
 class TrajectoryDatasetAE(TrajectoryDataset):
@@ -252,7 +317,16 @@ class DiffusionTrajectoryDataset(TrajectoryDataset):
 
         image_data = None
 
+
+def get_values_from_file_name(string, variable):
+    pattern = rf"{variable}_(\d+)"
+    match = re.search(pattern, string)
+    if match:
+        value = int(match.group(1))
+        return value
+    else:
+        raise Exception(f'{variable} not contained in {string}')
+
 if __name__ == '__main__':
     dataset = DiffusionTrajectoryDataset(model='DDPM',
                                          path_to_image_data='/raid/data/cifar10')
-
