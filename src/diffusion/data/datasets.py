@@ -6,8 +6,7 @@ import re
 import numpy as np
 from math import floor, ceil
 
-from diffusion.models.trajectory_generator import DDPM
-
+import json
 
 class ImageDataset(Dataset):
     def __init__(self, device='cpu'):
@@ -31,7 +30,6 @@ class ImageDataset(Dataset):
 
     def __len__(self):
         return self.data.size(0)
-
 class MNISTDataset(ImageDataset):
     def __init__(self, device, set='train', **kwargs):
         self.set = set
@@ -89,8 +87,6 @@ class CIFAR10Dataset(ImageDataset):
             labels = labels[set_len:]
 
         return data, labels
-
-
 class TrajectoryDataset(Dataset):
     """
     Data set for trajectories. Loads
@@ -190,7 +186,6 @@ class TrajectoryDatasetLazy(Dataset):
                       get_values_from_file_name(self.path, 'num_steps'),
                       get_values_from_file_name(self.path, 'dim'))
         self.data = np.memmap(path_to_data, dtype='float32', mode='r', shape=data_shape)  # [n_trajects, traject_length, data_dim]
-        print(self.data.shape)
         self.time_points = np.load(path_to_time_points, mmap_mode='r')    # [n_trajects, traject_length]
         if os.path.exists(path_to_exact_epr):
             self.exact_epr = torch.from_numpy(np.load(path_to_exact_epr))[:-1]
@@ -224,8 +219,6 @@ class TrajectoryDatasetLazy(Dataset):
 
     def __len__(self):
         return self.indices.shape[0]
-
-
 class TrajectoryDatasetAE(TrajectoryDataset):
     def __init__(self, set='train', **kwargs):
         self.n_time_steps = kwargs.get('n_time_steps', None)
@@ -240,9 +233,13 @@ class TrajectoryDatasetAE(TrajectoryDataset):
 
         data = torch.load(path_to_data, map_location="cpu")  # [n_series, total_series_length, data_dim]
         lr = torch.load(path_to_lr, map_location="cpu")  # [total_series_length]
-        self.mi = torch.load(path_to_mi, map_location="cpu")  # [total_series_length]
-        self.loss = torch.load(path_to_loss, map_location="cpu")  # [total_series_length]
-        self.bounds = torch.load(path_to_bounds, map_location="cpu")  # [total_series_length]
+        lr[0] = 0
+        if os.path.exists(path_to_mi):
+            self.mi = torch.load(path_to_mi, map_location="cpu")  # [total_series_length]
+        if os.path.exists(path_to_loss):
+            self.loss = torch.load(path_to_loss, map_location="cpu")  # [total_series_length]
+        if os.path.exists(path_to_bounds):
+            self.bounds = torch.load(path_to_bounds, map_location="cpu")  # [total_series_length]
 
         # shuffle data and split according to set
         rng = np.random.default_rng(self.seed)
@@ -258,34 +255,31 @@ class TrajectoryDatasetAE(TrajectoryDataset):
             data = data[(n_train_samples + n_valid_samples):]
 
         n_series, seq_len, dim = data.shape
-
         if self.n_time_steps is not None:
             idx1 = torch.arange(0, seq_len - 1, step=int(seq_len / self.n_time_steps))
             idx2 = 1 + idx1
             idx, _ = torch.sort(torch.cat((idx1, idx2), dim=0))
             data = data[:, idx].reshape(n_series, -1, 2, dim)  # [n_series, n_time_steps+1, 2, data_dim]
-
-            #time_points = torch.cumsum(lr, 0)  # [total_series_length]
-            time_points = lr[idx].reshape(-1, 2)  # [n_time_steps+1, 2]
+            time_points = torch.cumsum(lr, 0)  # [total_series_length]
+            time_points = time_points[idx].reshape(-1, 2)  # [n_time_steps+1, 2]
             time_points = time_points.unsqueeze(0).repeat(n_series, 1, 1)  # [n_series, n_time_steps+1, 2]
         else:
             data = data.repeat_interleave(2, dim=1)  # [n_series, total_series_length * 2, data_dim]
             data = data[:, 1:-1]  # [n_series, (total_series_length - 1) * 2, data_dim]
             data = data.reshape(n_series, -1, 2, dim)  # [n_series, total_series_length - 1, 2, data_dim]
 
-            #time_points = torch.cumsum(lr, 0)  # [total_series_length]
-            time_points = lr.repeat_interleave(2, dim=0)  # [total_series_length * 2]
+            time_points = torch.cumsum(lr, 0)  # [total_series_length]
+            time_points = time_points.repeat_interleave(2, dim=0)  # [total_series_length * 2]
             time_points = time_points[1:-1]  # [(total_series_length - 1) * 2]
             time_points = time_points.unsqueeze(0).repeat(n_series, 1)  # [n_series, (total_series_length - 1) * 2]
             time_points = time_points.reshape(n_series, -1, 2)  # [n_series, total_series_length - 1, 2]
 
+            print(data.size())
         return data, time_points
 
     def __getitem__(self, item):
         return {'data': self.data[item],
                 'time_point': self.time_points[item]}
-
-
 class DiffusionTrajectoryDataset(TrajectoryDataset):
     def __init__(self, set='train', **kwargs):
         super(TrajectoryDataset, self).__init__()
@@ -317,6 +311,34 @@ class DiffusionTrajectoryDataset(TrajectoryDataset):
 
         image_data = None
 
+class LatentDataset:
+    def __init__(self, set='train', **kwargs):
+        self.set = set
+        self.path = kwargs.get('path')
+
+        self.data, self.latent = self._get_data()
+
+        self.data_shape = self.data.size(-1)
+        self.latent_shape = self.latent.size(-1)
+
+        path_to_ml_sol = os.path.join(self.path, 'max_likelihood_sol.json')
+        if os.path.exists(path_to_ml_sol):
+            with open(path_to_ml_sol) as file:
+                self.max_likelihood_sol = json.load(file)
+
+    def _get_data(self):
+        path_to_data = os.path.join(self.path, f'{self.set}.csv')
+        path_to_latent = os.path.join(self.path, f'{self.set}_latent.csv')
+        data = torch.tensor(np.genfromtxt(path_to_data, delimiter=','))
+        latent = torch.tensor(np.genfromtxt(path_to_latent, delimiter=','))
+        return data, latent
+
+    def __getitem__(self, item):
+        return {'data': self.data[item],
+                'latent': self.latent[item]}
+
+    def __len__(self):
+        return self.data.size(0)
 
 def get_values_from_file_name(string, variable):
     pattern = rf"{variable}_(\d+)"

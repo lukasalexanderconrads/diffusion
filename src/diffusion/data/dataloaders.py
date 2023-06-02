@@ -74,3 +74,18 @@ class DataLoaderTrajectoryLazy:
         self.train = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
         self.valid = DataLoader(valid_set, batch_size=batch_size, shuffle=True, drop_last=True)
         self.test = DataLoader(test_set, batch_size=batch_size, shuffle=True, drop_last=True)
+
+class DataLoaderLatent:
+    def __init__(self, batch_size: int = 1, shuffle=True, **kwargs):
+        train_set = LatentDataset(set='train', **kwargs)
+        valid_set = LatentDataset(set='valid', **kwargs)
+        test_set = LatentDataset(set='test', **kwargs)
+
+        self.data_shape = train_set.data_shape
+        self.latent_shape = train_set.latent_shape
+        if hasattr(train_set, 'max_likelihood_sol'):
+            self.max_likelihood_sol = train_set.max_likelihood_sol
+
+        self.train = DataLoader(train_set, batch_size=batch_size, shuffle=shuffle, drop_last=True)
+        self.valid = DataLoader(valid_set, batch_size=batch_size, shuffle=shuffle, drop_last=True)
+        self.test = DataLoader(test_set, batch_size=batch_size, shuffle=shuffle, drop_last=True)
