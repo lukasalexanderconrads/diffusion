@@ -34,7 +34,8 @@ def main(config_path: Path):
         print_experiment_info(config)
 
         trainer = get_trainer(config)
-        train_metrics, valid_metrics = trainer.train(return_metrics=True)
+        trainer.train()
+        train_metrics, valid_metrics = trainer.evaluate_best_model()
 
         train_loss, valid_loss = float(train_metrics['loss'].detach()), float(valid_metrics['loss'].detach())
 
@@ -43,7 +44,7 @@ def main(config_path: Path):
 
         # double layer sizes
         old_layer_dims = config['model']['args']['layer_dims']
-        new_layer_dims = [dim * multiplier for dim, multiplier in zip(old_layer_dims, layer_multiplier)]
+        new_layer_dims = [int(dim * multiplier) for dim, multiplier in zip(old_layer_dims, layer_multiplier)]
         config['name'] = config['name'].replace(f'model_layer_dims_{tuple(old_layer_dims)}',
                                                 f'model_layer_dims_{tuple(new_layer_dims)}')
         config['model']['args']['layer_dims'] = new_layer_dims
@@ -60,7 +61,7 @@ def save_metrics(trainer, metrics_path, train_metrics, valid_metrics, layer_dims
 
     file_path = os.path.join(metrics_path, 'metrics.csv')
     if not os.path.exists(file_path):
-        os.mkdir(metrics_path)
+        os.makedirs(metrics_path)
         with open(file_path, 'w') as file:
             writer = csv.writer(file)
             writer.writerow(['layer_dims', 'train_loss', 'valid_loss', 'exact_ep', 'estimated_ep'])

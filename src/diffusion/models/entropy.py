@@ -3,8 +3,7 @@ from torch import nn
 from scipy.integrate import quad, simpson
 
 from diffusion.models.base import BaseModel
-from diffusion.utils.helpers import create_mlp, simpson_integrate
-from matplotlib import pyplot as plt
+from diffusion.utils.helpers import create_mlp
 
 
 class NEEP(BaseModel):
@@ -16,8 +15,6 @@ class NEEP(BaseModel):
         super(NEEP, self).__init__(**kwargs)
 
         self.estimator_type = kwargs.get('estimator_type')
-
-        #self.breathing_parabola_model = kwargs.get('breathing_parabola_model', False)
 
         layer_dims = kwargs.get('layer_dims').copy()
 
@@ -93,7 +90,7 @@ class NEEP(BaseModel):
             d = d * torch.gather(d_vec, dim=2, index=t_indices).squeeze()
 
         # generalized current
-        j = torch.sum(d * (x[:, :, 1] - x[:, :, 0]).double(), dim=-1).unsqueeze(-1)  # [B, T]
+        j = torch.sum(d * (x[:, :, 1] - x[:, :, 0]).double(), dim=-1)  # [B, T]
 
         return j  # [B, T, D]
 
@@ -105,7 +102,7 @@ class NEEP(BaseModel):
         :return: entropy_production_rate for each time point [T]
         """
         dt = (t[:, :, 1] - t[:, :, 0])[0]    # [T]
-        entropy_production_rate = torch.max(self.estimators[self.estimator_type](j), dim=-1).values / dt     # [B, T, D] -> [T]
+        entropy_production_rate = self.estimators[self.estimator_type](j) / dt     # [B, T, D] -> [T]
         return entropy_production_rate
 
     def loss(self, entropy_production_rate) -> dict:
@@ -148,15 +145,14 @@ class NEEP(BaseModel):
         optimizer.zero_grad()
 
         j = self.forward((x, t))  # [B,T,2,D], [B,T,2] -> [B,T]
-
         entropy_production_rate = self.get_entropy_production_rate(j, t)
-
         loss_stats = self.loss(entropy_production_rate)
+        metric_stats = self.metric(entropy_production_rate, t)
 
         loss_stats['loss'].backward()
         optimizer.step()
 
-        return loss_stats
+        return loss_stats | metric_stats
 
     def valid_step(self, minibatch: dict) -> dict:
         x = minibatch['data'].to(self.device)  # [B, T, 2, D]

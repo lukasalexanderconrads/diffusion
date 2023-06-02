@@ -19,9 +19,9 @@ def main(config_path: Path):
 
     for config in config_list:
         config['seed'] = seed
-        seed += 1
+        #seed += 1
         config['loader']['seed'] = data_seed
-        data_seed += 1
+        #data_seed += 1
 
         torch.manual_seed(config['seed'])
 
