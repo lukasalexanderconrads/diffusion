@@ -37,6 +37,9 @@ class Trainer:
         self.optimizer = create_instance(config['optimizer']['module'], config['optimizer']['name'],
                                          config['optimizer']['args'], self.model.parameters())
 
+        if kwargs.get('no_training', False):
+            return
+
         self.n_epochs = kwargs.get('n_epochs')
         assert self.n_epochs is not None, 'n_epochs not provided to trainer'
 
@@ -69,56 +72,47 @@ class Trainer:
         if lr_scheduler is not None:
             self.lr_scheduler = create_instance(lr_scheduler['module'], lr_scheduler['name'], lr_scheduler['args'])
 
-    def train(self, return_metrics=False):
+    def train(self):
         print('training parameters...')
         for epoch in tqdm(range(self.n_epochs), desc='epochs'):
             self.model.train()
             torch.set_grad_enabled(True)
-            train_metrics = self.train_epoch(epoch, return_metrics)
-
+            self.train_epoch(epoch)
             self.model.eval()
             torch.set_grad_enabled(False)
-            valid_metrics = self.valid_epoch(epoch, return_metrics)
+            self.valid_epoch(epoch)
             if self.check_early_stopping():
                 break
 
         self.writer.flush()
         self.writer.close()
 
-        if return_metrics:
-            return train_metrics, valid_metrics
-
-    def train_epoch(self, epoch, return_metrics=False):
+    def train_epoch(self, epoch):
         self.update_scheduled_values(epoch)
+        self.update_lr(epoch)
         self.metric_avg.reset()
-        for minibatch in tqdm(self.data_loader.train, desc='train set', leave=False):
-            self.update_lr(epoch)
+        for step, minibatch in enumerate(tqdm(self.data_loader.train, desc='train set', leave=False)):
+            self.save_model(epoch, step)
             metrics = self.model.train_step(minibatch, self.optimizer)
             self.metric_avg.update(metrics)
         metrics = self.metric_avg.get_average()
         self.writer.add_scalar('train/loss', metrics['loss'], epoch)
         self.log(metrics.copy(), epoch)
 
-        if return_metrics:
-            return metrics
-
-    def valid_epoch(self, epoch, return_metrics=False):
+    def valid_epoch(self, epoch):
         self.metric_avg.reset()
         for minibatch in tqdm(self.data_loader.valid, desc='validation set', leave=False):
             metrics = self.model.valid_step(minibatch)
             self.metric_avg.update(metrics)
         metrics = self.metric_avg.get_average()
         self.log(metrics.copy(), epoch, 'valid')
-        self.save_model(metrics)
-
-        if return_metrics:
-            return metrics
+        self.save_best_model(metrics)
 
     def log(self, metrics, epoch, split='train'):
         for key, value in metrics.items():
             self.writer.add_scalar(f'{split}/{key}', value, epoch)
 
-    def save_model(self, metrics):
+    def save_best_model(self, metrics):
         """
         saves the model if it is better according to bm_metric
         """
@@ -158,6 +152,12 @@ class Trainer:
     def create_model(self, config):
         self.model = get_model(config, data_shape=self.data_loader.data_shape)
 
+    def save_model(self, epoch, step):
+        """
+        this is overridden in AETrainer
+        """
+        pass
+
 class EntropyTrainer(Trainer):
     def __init__(self, config, **kwargs):
         super(EntropyTrainer, self).__init__(config, **kwargs)
@@ -181,7 +181,7 @@ class EntropyTrainer(Trainer):
         :param time_point: [B, T, 2]
         :return:
         """
-        current = torch.concat(current, dim=0).cpu()
+        current = torch.concat(current, dim=0).cpu().unsqueeze(-1)
         dt = (time_point[:, :, 1] - time_point[:, :, 0])[0].cpu()
         t_eval = (time_point[0, :, 0] + time_point[0, :, 1]).cpu() / 2
         estimated_epr = (torch.max(self.model.estimators['var'](current), dim=-1).values / dt)
@@ -244,10 +244,8 @@ class EntropyTrainer(Trainer):
         current_avg = torch.mean(torch.concat(current, dim=0), dim=0).cpu() # [T, D]
         t_eval = (time_point[0, :, 0] + time_point[0, :, 1]).cpu() / 2
 
-        for current_dim in range(current_avg.size(-1)):
-            plt.plot(t_eval[50:], current_avg[50:, current_dim], label=f'dim {current_dim}')
+        plt.plot(t_eval[50:], current_avg[50:])
 
-        plt.legend()
         plt.xlabel('time')
         plt.ylabel('current')
         fig = plt.gcf()
@@ -275,3 +273,50 @@ class EntropyTrainer(Trainer):
     def create_model(self, config):
         config['model']['args']['max_time'] = self.data_loader.max_time
         self.model = get_model(config, data_shape=self.data_loader.data_shape)
+
+    def evaluate_best_model(self):
+        """
+        Fucks up the current model
+        """
+        self.model.load_state_dict(torch.load(os.path.join(self.save_dir, 'best_model.pth')))
+        self.model.eval()
+
+        # validation
+        self.metric_avg.reset()
+        for minibatch in tqdm(self.data_loader.valid, desc='validation set', leave=False):
+            metrics = self.model.valid_step(minibatch)
+            self.metric_avg.update(metrics)
+        valid_metrics = self.metric_avg.get_average()
+
+        # train
+        self.metric_avg.reset()
+        for minibatch in tqdm(self.data_loader.train, desc='train set', leave=False):
+            metrics = self.model.valid_step(minibatch)
+            self.metric_avg.update(metrics)
+        train_metrics = self.metric_avg.get_average()
+
+        return train_metrics, valid_metrics
+
+class AETrainer(Trainer):
+    """
+    This Trainer saves a model after every gradient update
+    It also sets the latent dimension if the dataset contains latent variables
+    passes data distribution to model if exists
+    """
+    def __init__(self, config, **kwargs):
+        super().__init__(config, **kwargs)
+    def create_model(self, config):
+        if hasattr(self.data_loader, 'latent_shape'):
+            config['model']['args']['latent_dim'] = self.data_loader.latent_shape
+        if hasattr(self.data_loader, 'max_likelihood_sol'):
+            config['model']['args']['max_likelihood_sol'] = self.data_loader.max_likelihood_sol
+        self.model = get_model(config, data_shape=self.data_loader.data_shape)
+
+    def save_model(self, epoch, step):
+        checkpoint_name = f'checkpoint-{epoch}-{step}.pth'
+        torch.save(self.model.state_dict(), os.path.join(self.save_dir, checkpoint_name))
+        with open(os.path.join(self.save_dir, 'checkpoint_names.txt'), 'a') as checkpoint_file:
+            checkpoint_file.write(checkpoint_name + '\n')
+
+
+
