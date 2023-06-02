@@ -1,24 +1,27 @@
-name: entropy/ou_process/
-device: cuda:0
+name: entropy/ppca/
+device: cuda:1
 num_runs: 1
 seed: 1
+
+stopping_difference: 2
+layer_multiplier: !!python/tuple [2, 2]
+metrics_path: /rdata/results/entropy/ou_process/metrics
 
 model:
   module: diffusion.models.entropy
   name: NEEP
   args:
     estimator_type: simple
-    layer_dims: !!python/tuple [8, 8]
+    layer_dims: [!!python/tuple [16, 16, 16]]
     kernel: gaussian
-    dropout: 0
 
 loader:
   module: diffusion.data.dataloaders
-  name: DataLoaderTrajectory
+  name: DataLoaderTrajectoryAE
   args:
-    batch_size: 64
+    batch_size: [16]
     train_fraction: .8
-    path: [/raid/data/neep/mv_ou_process/_dim_16_T_1_num_steps_1000_num_samples_10000]
+    path: /raid/data/neep/ppca/_loader_batch_size_32_optimizer_lr_0.0005/0602-135144
     standardize: false
 
 
@@ -34,7 +37,8 @@ trainer:
   args:
     n_epochs: 500
     bm_metric: loss
-    early_stop_criterion: 200 # if no improvement over this many epochs, stop training
+    early_stop_criterion: 20 # if no improvement over this many epochs, stop training
+    log_plots_every_n_epochs: 10
     log_dir: /rdata/results
     save_dir: /rdata/results
 
@@ -42,5 +46,5 @@ trainer:
       module: diffusion.schedulers
       name: HalvingScheduler
       args:
-        start_value: .001
-        halve_after_epochs: !!python/tuple [100, 200]
+        start_value: .004
+        halve_after_epochs: !!python/tuple [10, 15, 20]

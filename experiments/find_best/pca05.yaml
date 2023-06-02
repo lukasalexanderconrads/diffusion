@@ -3,6 +3,10 @@ device: cuda:1
 num_runs: 1
 seed: 1
 
+stopping_difference: 10
+layer_multiplier: !!python/tuple [2, 2]
+metrics_path: /rdata/results/entropy/ou_process/metrics
+
 model:
   module: diffusion.models.entropy
   name: NEEP
@@ -15,10 +19,10 @@ loader:
   module: diffusion.data.dataloaders
   name: DataLoaderTrajectoryAE
   args:
-    batch_size: [128]
+    batch_size: [16]
     train_fraction: .8
     path: /raid/data/neep/_data_loader_batch_size_32_optimizer_lr_0.05/1811_143858
-    standardize: true
+    standardize: false
 
 
 optimizer:

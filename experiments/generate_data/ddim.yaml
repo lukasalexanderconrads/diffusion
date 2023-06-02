@@ -1,11 +1,11 @@
-name: ddpm/
-device: cuda:1
+name: ddim/
+device: cuda:0
 num_runs: 1
 seed: 1
 
 model:
   module: diffusion.models.trajectory_generator
-  name: DDPM
+  name: DDIM
   args:
     num_steps: [1000]      # number of time steps
     num_samples: [1000]    # ensemble size

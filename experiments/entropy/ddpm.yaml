@@ -1,4 +1,4 @@
-name: entropy/ou_process/
+name: entropy/ddpm/
 device: cuda:0
 num_runs: 1
 seed: 1
@@ -8,9 +8,8 @@ model:
   name: NEEP
   args:
     estimator_type: simple
-    layer_dims: !!python/tuple [8, 8]
+    layer_dims: [!!python/tuple [100, 100], !!python/tuple [100, 100, 100]]
     kernel: gaussian
-    dropout: 0
 
 loader:
   module: diffusion.data.dataloaders
@@ -18,7 +17,7 @@ loader:
   args:
     batch_size: 64
     train_fraction: .8
-    path: [/raid/data/neep/mv_ou_process/_dim_16_T_1_num_steps_1000_num_samples_10000]
+    path: [/raid/data/neep/ddpm/_model_num_steps_1000_model_num_samples_1000]
     standardize: false
 
 

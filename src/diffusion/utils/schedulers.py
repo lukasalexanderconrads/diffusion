@@ -40,5 +40,5 @@ class HalvingScheduler(BaseScheduler):
 
     def get_scheduled_variable_value(self, epoch):
         if epoch in self.halve_after_epochs:
-            self.value /= 2
+            self.value /= 2.0
         return self.value

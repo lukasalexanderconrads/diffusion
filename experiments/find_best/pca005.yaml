@@ -1,23 +1,28 @@
 name: entropy/pca005/
-device: cuda:0
+device: cuda:1
 num_runs: 1
 seed: 1
+
+stopping_difference: 10
+layer_multiplier: !!python/tuple [2, 2]
+metrics_path: /rdata/results/entropy/ou_process/metrics
 
 model:
   module: diffusion.models.entropy
   name: NEEP
   args:
     estimator_type: simple
-    layer_dims: [!!python/tuple [100]]
+    layer_dims: [!!python/tuple [8, 8]]
+    kernel: gaussian
 
 loader:
   module: diffusion.data.dataloaders
   name: DataLoaderTrajectoryAE
   args:
-    batch_size: [128]
+    batch_size: [16]
     train_fraction: .8
     path: /raid/data/neep/_data_loader_batch_size_32_optimizer_lr_0.005/1811_144017
-    standardize: true
+    standardize: false
 
 
 optimizer:
@@ -30,8 +35,8 @@ trainer:
   module: diffusion.trainer
   name: EntropyTrainer
   args:
-    n_epochs: 200
+    n_epochs: 500
     bm_metric: loss
-    early_stop_criterion: 100 # if no improvement over this many epochs, stop training
+    early_stop_criterion: 10 # if no improvement over this many epochs, stop training
     log_dir: /rdata/results
     save_dir: /rdata/results

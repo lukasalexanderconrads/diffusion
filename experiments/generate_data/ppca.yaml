@@ -1,0 +1,14 @@
+name: ppca/scaled/
+device: cuda:0
+num_runs: 1
+seed: 1
+
+
+args:
+  cutoff_metric: mi # metric to use for cutoff
+  #cutoff_var: .000001 # variance under which trajectory is cut off
+  cutoff_n: 10 # variance over last n epochs
+  #cutoff_value: 1.45 # mean above which trajectory is cut off
+  model_dir: /rdata/results/ppca/_loader_batch_size_32_optimizer_lr_0.0005/0602-135144
+  batch_size: 2500
+  path: /raid/data/neep

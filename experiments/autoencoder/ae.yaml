@@ -1,0 +1,34 @@
+name: ppca/
+num_runs: 1
+device: cuda:0
+seed: 1
+
+model:
+  module: diffusion.models.autoencoder
+  name: AE
+  args:
+    dummy: dummy
+
+loader:
+  module: diffusion.data.dataloaders
+  name: DataLoaderLatent
+  args:
+    path: /raid/data/gaussian_linear/
+    batch_size: [32]
+
+optimizer:
+  module: torch.optim
+  name: SGD
+  args:
+    lr: [0.01, 0.005, 0.001, 0.0005]
+
+trainer:
+  module: diffusion.trainer
+  name: AETrainer
+  args:
+    n_epochs: 500
+    bm_metric: loss
+    early_stop_criterion: 20 # if no improvement over this many epochs, stop training
+    log_dir: /rdata/results
+    save_dir: /rdata/results
+
