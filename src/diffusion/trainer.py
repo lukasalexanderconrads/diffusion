@@ -26,7 +26,6 @@ class Trainer:
             save_dir: str, path to directory where the model .pth and config .yaml files are saved
             schedulers: list of
         """
-        name = config['name']
         # data loader
         print('loading data...')
         self.data_loader = get_data_loader(config)
@@ -37,6 +36,7 @@ class Trainer:
         self.optimizer = create_instance(config['optimizer']['module'], config['optimizer']['name'],
                                          config['optimizer']['args'], self.model.parameters())
 
+        name = self.get_name(config)
         if kwargs.get('no_training', False):
             return
 
@@ -158,6 +158,9 @@ class Trainer:
         """
         pass
 
+    def get_name(self, config):
+        return config['name']
+
 class EntropyTrainer(Trainer):
     def __init__(self, config, **kwargs):
         super(EntropyTrainer, self).__init__(config, **kwargs)
@@ -206,7 +209,7 @@ class EntropyTrainer(Trainer):
         # plot mutual information if contained in data set
         if hasattr(self.data_loader.train.dataset, 'mi'):
             mutual_information = self.data_loader.train.dataset.mi
-            plt.plot(t_eval.cpu().numpy(), mutual_information[:-1].cpu().numpy(),
+            plt.plot(t_eval.cpu().numpy(), mutual_information.cpu().numpy(),
                      label=f'mutual information')
 
         # plot estimated estimated cumulative entropy production
@@ -260,7 +263,7 @@ class EntropyTrainer(Trainer):
         if hasattr(self.data_loader.train.dataset, 'loss'):
             t_eval = (time_point[0, :, 0] + time_point[0, :, 1]).cpu() / 2
             loss = self.data_loader.train.dataset.loss
-            plt.plot(t_eval.cpu().numpy(), torch.log(loss[:-1]).cpu().numpy(),
+            plt.plot(t_eval.cpu().numpy(), torch.log(loss).cpu().numpy(),
                      label=f'loss')
             plt.legend()
             plt.xlabel('time')
@@ -296,6 +299,13 @@ class EntropyTrainer(Trainer):
         train_metrics = self.metric_avg.get_average()
 
         return train_metrics, valid_metrics
+
+    def get_name(self, config):
+        model_name = config['name']
+        model_dir = os.path.join(*(model_name.split('/')[:-1]))
+        model_name = os.path.join(*(model_name.split('/')[-1:]))
+        data_name = os.path.join(*(config['loader']['args']['path'].split('/')[-2:]))
+        return os.path.join(model_dir, data_name, model_name)
 
 class AETrainer(Trainer):
     """

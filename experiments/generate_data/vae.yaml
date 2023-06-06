@@ -1,0 +1,14 @@
+name: vae/
+device: cuda:0
+num_runs: 1
+seed: 1
+
+
+args:
+  #cutoff_metric: mi # metric to use for cutoff
+  #cutoff_var: .000001 # variance under which trajectory is cut off
+  #cutoff_n: 10 # variance over last n epochs
+  #cutoff_value: 1.45 # mean above which trajectory is cut off
+  model_dir: /rdata/results/vae/_loader_batch_size_32_optimizer_lr_0.01/0603-132459
+  batch_size: 5000
+  path: /raid/data/neep

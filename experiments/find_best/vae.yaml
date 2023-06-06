@@ -1,4 +1,4 @@
-name: entropy/ppca/
+name: entropy/vae/
 device: cuda:1
 num_runs: 1
 seed: 1
@@ -12,20 +12,17 @@ model:
   name: NEEP
   args:
     estimator_type: simple
-    layer_dims: [!!python/tuple [4, 4]]
+    layer_dims: [!!python/tuple [8, 8]]
     kernel: gaussian
-    dropout: .3
 
 loader:
   module: diffusion.data.dataloaders
   name: DataLoaderTrajectoryAE
   args:
-    batch_size: 64
+    batch_size: [64]
     train_fraction: .8
-    path: /raid/data/neep/ppca/_loader_batch_size_32_optimizer_lr_0.005/0602-095414
+    path: /raid/data/neep/vae/_loader_batch_size_32_optimizer_lr_0.01/0603-132459
     standardize: false
-    n_time_steps: 5000
-
 
 optimizer:
   module: torch.optim
@@ -39,7 +36,7 @@ trainer:
   args:
     n_epochs: 500
     bm_metric: loss
-    early_stop_criterion: 50 # if no improvement over this many epochs, stop training
+    early_stop_criterion: 20 # if no improvement over this many epochs, stop training
     log_plots_every_n_epochs: 10
     log_dir: /rdata/results
     save_dir: /rdata/results

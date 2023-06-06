@@ -5,10 +5,10 @@ seed: 1
 
 
 args:
-  dim: [128]                # dimension of the process
-  T: [1]              # last time point
-  num_steps: [100000]      # number of time steps
-  num_samples: [10000]    # ensemble size
+  dim: [3]                # dimension of the process
+  T: [40]              # last time point
+  num_steps: [5000]      # number of time steps
+  num_samples: [5000]    # ensemble size
   batch_size: 100
   path: /raid/data/neep
   diagonal: False      # if matrices A, B are diagonal

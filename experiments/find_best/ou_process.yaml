@@ -13,7 +13,7 @@ model:
   name: NEEP
   args:
     estimator_type: simple
-    layer_dims: [!!python/tuple [8, 8]]
+    layer_dims: [!!python/tuple [2, 2]]
     kernel: gaussian
     dropout: 0
 
@@ -21,9 +21,9 @@ loader:
   module: diffusion.data.dataloaders
   name: DataLoaderTrajectoryLazy
   args:
-    batch_size: [16]
+    batch_size: 64
     train_fraction: .8
-    path: [/raid/data/neep/mv_ou_process/_dim_64_T_1_num_steps_20000_num_samples_10000]
+    path: /raid/data/neep/mv_ou_process/_dim_3_T_40_num_steps_5000_num_samples_5000
     standardize: false
 
 
@@ -37,9 +37,9 @@ trainer:
   module: diffusion.trainer
   name: EntropyTrainer
   args:
-    n_epochs: 300
+    n_epochs: 500
     bm_metric: loss
-    early_stop_criterion: 10 # if no improvement over this many epochs, stop training
+    early_stop_criterion: 30 # if no improvement over this many epochs, stop training
     log_plots_every_n_epochs: 10
     log_dir: /rdata/results
     save_dir: /rdata/results
@@ -48,5 +48,5 @@ trainer:
       module: diffusion.schedulers
       name: HalvingScheduler
       args:
-        start_value: .001
-        halve_after_epochs: !!python/tuple [100, 200]
+        start_value: .004
+        halve_after_epochs: !!python/tuple [10, 15, 20]

@@ -234,10 +234,11 @@ class TrajectoryDatasetAE(TrajectoryDataset):
         data = torch.load(path_to_data, map_location="cpu")  # [n_series, total_series_length, data_dim]
         lr = torch.load(path_to_lr, map_location="cpu")  # [total_series_length]
         lr[0] = 0
+        seq_len = data.shape[1]
         if os.path.exists(path_to_mi):
-            self.mi = torch.load(path_to_mi, map_location="cpu")  # [total_series_length]
+            self.mi = torch.load(path_to_mi, map_location="cpu")[:seq_len-1]  # [total_series_length]
         if os.path.exists(path_to_loss):
-            self.loss = torch.load(path_to_loss, map_location="cpu")  # [total_series_length]
+            self.loss = torch.load(path_to_loss, map_location="cpu") [:seq_len-1] # [total_series_length]
         if os.path.exists(path_to_bounds):
             self.bounds = torch.load(path_to_bounds, map_location="cpu")  # [total_series_length]
 
@@ -254,27 +255,36 @@ class TrajectoryDatasetAE(TrajectoryDataset):
         if self.set == 'test':
             data = data[(n_train_samples + n_valid_samples):]
 
-        n_series, seq_len, dim = data.shape
+        n_series, _, dim = data.shape
+        # if self.n_time_steps is not None:
+        #     idx1 = torch.arange(0, seq_len - 1, step=int(seq_len / self.n_time_steps))
+        #     idx2 = 1 + idx1
+        #     idx, _ = torch.sort(torch.cat((idx1, idx2), dim=0))
+        #     data = data[:, idx].reshape(n_series, -1, 2, dim)  # [n_series, n_time_steps+1, 2, data_dim]
+        #     time_points = torch.cumsum(lr, 0)  # [total_series_length]
+        #     time_points = time_points[idx].reshape(-1, 2)  # [n_time_steps+1, 2]
+        #     time_points = time_points.unsqueeze(0).repeat(n_series, 1, 1)  # [n_series, n_time_steps+1, 2]
+        #else:
+        data = data.repeat_interleave(2, dim=1)  # [n_series, total_series_length * 2, data_dim]
+        data = data[:, 1:-1]  # [n_series, (total_series_length - 1) * 2, data_dim]
+        data = data.reshape(n_series, -1, 2, dim)  # [n_series, total_series_length - 1, 2, data_dim]
+
+        time_points = torch.cumsum(lr, 0)  # [total_series_length]
+        time_points = time_points.repeat_interleave(2, dim=0)  # [total_series_length * 2]
+        time_points = time_points[1:-1]  # [(total_series_length - 1) * 2]
+        time_points = time_points.unsqueeze(0).repeat(n_series, 1)  # [n_series, (total_series_length - 1) * 2]
+        time_points = time_points.reshape(n_series, -1, 2)  # [n_series, total_series_length - 1, 2]
         if self.n_time_steps is not None:
-            idx1 = torch.arange(0, seq_len - 1, step=int(seq_len / self.n_time_steps))
-            idx2 = 1 + idx1
-            idx, _ = torch.sort(torch.cat((idx1, idx2), dim=0))
-            data = data[:, idx].reshape(n_series, -1, 2, dim)  # [n_series, n_time_steps+1, 2, data_dim]
-            time_points = torch.cumsum(lr, 0)  # [total_series_length]
-            time_points = time_points[idx].reshape(-1, 2)  # [n_time_steps+1, 2]
-            time_points = time_points.unsqueeze(0).repeat(n_series, 1, 1)  # [n_series, n_time_steps+1, 2]
-        else:
-            data = data.repeat_interleave(2, dim=1)  # [n_series, total_series_length * 2, data_dim]
-            data = data[:, 1:-1]  # [n_series, (total_series_length - 1) * 2, data_dim]
-            data = data.reshape(n_series, -1, 2, dim)  # [n_series, total_series_length - 1, 2, data_dim]
+            idx = torch.arange(0, seq_len - 1, step=int(seq_len / self.n_time_steps))
+            data = data[:, idx]
+            time_points = time_points[:, idx]
+            if os.path.exists(path_to_mi):
+                self.mi = self.mi[idx]
+            if os.path.exists(path_to_loss):
+                self.loss = self.loss[idx]
 
-            time_points = torch.cumsum(lr, 0)  # [total_series_length]
-            time_points = time_points.repeat_interleave(2, dim=0)  # [total_series_length * 2]
-            time_points = time_points[1:-1]  # [(total_series_length - 1) * 2]
-            time_points = time_points.unsqueeze(0).repeat(n_series, 1)  # [n_series, (total_series_length - 1) * 2]
-            time_points = time_points.reshape(n_series, -1, 2)  # [n_series, total_series_length - 1, 2]
 
-            print(data.size())
+        print('data shape:', data.size())
         return data, time_points
 
     def __getitem__(self, item):
