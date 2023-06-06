@@ -1,0 +1,49 @@
+name: entropy/ae/
+device: cuda:1
+num_runs: 1
+seed: 1
+
+stopping_difference: 2
+layer_multiplier: !!python/tuple [2, 2]
+metrics_path: /rdata/results/entropy/ou_process/metrics
+
+model:
+  module: diffusion.models.entropy
+  name: NEEP
+  args:
+    estimator_type: simple
+    layer_dims: [!!python/tuple [2, 2]]
+    kernel: gaussian
+
+loader:
+  module: diffusion.data.dataloaders
+  name: DataLoaderTrajectoryAE
+  args:
+    batch_size: [64]
+    train_fraction: .8
+    path: /raid/data/neep/ae/_loader_batch_size_64_optimizer_lr_0.005/0605-122439
+    standardize: false
+
+optimizer:
+  module: torch.optim
+  name: Adam
+  args:
+    lr: .001
+
+trainer:
+  module: diffusion.trainer
+  name: EntropyTrainer
+  args:
+    n_epochs: 500
+    bm_metric: loss
+    early_stop_criterion: 20 # if no improvement over this many epochs, stop training
+    log_plots_every_n_epochs: 10
+    log_dir: /rdata/results
+    save_dir: /rdata/results
+
+    lr_scheduler:
+      module: diffusion.schedulers
+      name: HalvingScheduler
+      args:
+        start_value: .004
+        halve_after_epochs: !!python/tuple [10, 15, 20]

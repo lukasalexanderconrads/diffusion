@@ -27,12 +27,19 @@ class BaseAutoencoder(BaseModel):
         posterior_ml_proj = torch.tensor(kwargs['max_likelihood_sol']['encoder_proj_ml'])
         self.mi_max_likelihood = mutual_information_data_rep(self.ground_truth_cov, posterior_ml_cov, posterior_ml_proj)
 
+        self._init_components(**kwargs)
+    def _init_components(self, **kwargs):
+        pass
+
 class PPCA(BaseAutoencoder):
     """
     Probabilistic PCA
     """
     def __init__(self, data_dim, **kwargs):
         super(PPCA, self).__init__(data_dim, **kwargs)
+
+
+    def _init_components(self, **kwargs):
         # Linear map from latent to data space
         self.linear_map = torch.nn.Parameter(torch.rand(self.data_dim, self.latent_dim, device=self.device),
                                              requires_grad=True)
@@ -48,7 +55,7 @@ class PPCA(BaseAutoencoder):
         self.sample = False
 
 
-    def forward(self, input: torch.Tensor, sample=False):
+    def forward(self, input: torch.Tensor, sample=False, cov_factor=1):
         """
         input: [B, D]
         returns
@@ -62,6 +69,7 @@ class PPCA(BaseAutoencoder):
 
         enc_projection = torch.matmul(m1, torch.t(self.linear_map))  # encoder projection [data_dim, latent_dim]
         enc_cov = torch.abs(self.sigma_square) * m1
+        enc_cov *= cov_factor
 
         if sample:
             # sample from posterior distribution
@@ -137,6 +145,16 @@ class PPCA(BaseAutoencoder):
 
         return loss_stats | metric_stats
 
+    def get_latent_mi_loss(self, input, cov_factor=1):
+        enc_cov, enc_projection, latent = self.forward(input, sample=True, cov_factor=cov_factor)
+        mi = mutual_information_data_rep(self.ground_truth_cov.to(self.device), enc_cov, enc_projection)
+        loss = self.loss(input)['loss']
+        return latent, mi, loss
+
+    def get_mi(self, enc_cov, enc_projection):
+        mi = mutual_information_data_rep(self.ground_truth_cov.to(self.device), enc_cov, enc_projection)
+        return mi
+
 class AE(BaseAutoencoder):
     """
     Variational Autoencoder
@@ -144,13 +162,15 @@ class AE(BaseAutoencoder):
     def __init__(self, data_dim, **kwargs):
         super(AE, self).__init__(data_dim, **kwargs)
 
+
+    def _init_components(self, **kwargs):
         ### encoder
         encoder_layer_dims = [self.data_dim] + kwargs.get('encoder_layer_dims', []) + [self.latent_dim]
-        self.encoder = create_mlp(encoder_layer_dims)
+        self.encoder = create_mlp(encoder_layer_dims).to(self.device)
 
         ### decoder
         decoder_layer_dims = [self.latent_dim] + kwargs.get('decoder_layer_dims', []) + [self.data_dim]
-        self.decoder = create_mlp(decoder_layer_dims)
+        self.decoder = create_mlp(decoder_layer_dims).to(self.device)
 
 
     def forward(self, input: torch.Tensor):
@@ -198,24 +218,29 @@ class AE(BaseAutoencoder):
         reconstruction, _ = self.forward(data)
         loss_stats = self.loss(reconstruction, data)
 
-
         return loss_stats
 
-class VAE(BaseAutoencoder):
+    def get_latent_mi_loss(self, input):
+        reconstruction, latent = self.forward(input)
+        loss = self.loss(reconstruction, input)['loss']
+        return latent, None, loss
+
+class VAE(AE):
     """
     Variational Autoencoder
     """
     def __init__(self, data_dim, **kwargs):
         super(VAE, self).__init__(data_dim, **kwargs)
 
+
+    def _init_components(self, **kwargs):
         ### encoder
         encoder_layer_dims = [self.data_dim] + kwargs.get('encoder_layer_dims', []) + [2 * self.latent_dim]
-        self.encoder = create_mlp(encoder_layer_dims)
+        self.encoder = create_mlp(encoder_layer_dims).to(self.device)
 
         ### decoder
         decoder_layer_dims = [self.latent_dim] + kwargs.get('decoder_layer_dims', []) + [self.data_dim]
-        self.decoder = create_mlp(decoder_layer_dims)
-
+        self.decoder = create_mlp(decoder_layer_dims).to(self.device)
 
     def forward(self, input: torch.Tensor, sample=False):
         """
@@ -227,45 +252,24 @@ class VAE(BaseAutoencoder):
         (iv) latent sample
         """
         encoder_out = self.encoder(input)
-        mean = encoder_out[:self.latent_dim]
-        variance = encoder_out[self.latent_dim:]
+        mean = encoder_out[:, :self.latent_dim]
+        variance = encoder_out[:, self.latent_dim:]
 
-        noise = None
+        noise = torch.randn(variance.size(), device=self.device)
 
+        latent = mean + variance * noise
 
+        reconstruction = self.decoder(latent)
 
+        return reconstruction, mean, variance, latent
 
-    def loss(self, x_target: torch.Tensor) -> dict:
+    def loss(self, reconstruction, target: torch.Tensor) -> dict:
 
-        data_dim = x_target.shape[-1]
-        ppca = MultivariateNormal(loc=self.mean,
-                                  covariance_matrix=(torch.matmul(self.linear_map, self.linear_map.T)
-                                                     + torch.abs(self.sigma_square) * torch.eye(data_dim, device=self.device)))
-        loss = -torch.mean(ppca.log_prob(x_target))
-        # # Exact maximum likelihood distribution (for comparison)
-        # max_lik_distr = MultivariateNormal(loc=torch.tensor(self.mean_max_lik.to(self.device)),
-        #                                    covariance_matrix=torch.tensor(self.cov_max_lik.to(self.device)))
-        # max_likelihood_sol = - torch.mean(max_lik_distr.log_prob(x_target))
-        #
-        # stats['max_likelihood_sol'] = max_likelihood_sol
-        # stats['d_loss_wrt_ml'] = torch.abs(torch.mean(loss) - max_likelihood_sol)
+        reconstruction_loss = super().loss(reconstruction, target)['loss']
 
-        return {'loss': loss}
-
-    def metric(self, cov_z: torch.Tensor, enc_proj: torch.Tensor):
-        """
-        Computes the mutual information between data and representation
-        """
-        if self.ground_truth_cov is not None:
-            mi = mutual_information_data_rep(self.ground_truth_cov.to(self.device),
-                                             cov_z,
-                                             enc_proj)
-        else:
-            mi = torch.tensor(0.0)
-
-        mi_diff = torch.abs(mi - self.mi_max_likelihood)
-
-        return {'mi': mi, 'mi_ml': self.mi_max_likelihood, 'mi_diff': mi_diff}
+        loss = reconstruction_loss
+        return {'loss': loss,
+                'reconstruction_loss': reconstruction_loss}
 
 
     def train_step(self, minibatch: dict, optimizer: torch.optim.Optimizer) -> dict:
@@ -275,25 +279,27 @@ class VAE(BaseAutoencoder):
         optimizer.zero_grad()
 
         # forward pass
-        cov_z, enc_proj, _ = self.forward(data, self.sample)
+        reconstruction, mean, variance, latent = self.forward(data)
 
         # backprop + update
-        loss_stats = self.loss(data)
+        loss_stats = self.loss(reconstruction, data)
         loss_stats['loss'].backward()
         torch.nn.utils.clip_grad_norm_(self.parameters(), 1)
         optimizer.step()
 
-        metric_stats = self.metric(cov_z, enc_proj)
-
-        return loss_stats | metric_stats
+        return loss_stats
 
     def valid_step(self, minibatch: torch.Tensor) -> dict:
         data = minibatch['data'].to(self.device).float()
 
-        # Evaluate model
-        cov_z, enc_proj, _ = self.forward(data, self.sample)
-        loss_stats = self.loss(data)
+        # forward pass
+        reconstruction, mean, variance, latent = self.forward(data)
 
-        metric_stats = self.metric(cov_z, enc_proj)
+        loss_stats = self.loss(reconstruction, data)
 
-        return loss_stats | metric_stats
+        return loss_stats
+
+    def get_latent_mi_loss(self, input):
+        reconstruction, _, _, latent = self.forward(input)
+        loss = self.loss(reconstruction, input)['loss']
+        return latent, None, loss

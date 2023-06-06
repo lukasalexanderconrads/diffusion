@@ -58,8 +58,9 @@ def main(config_path: Path):
             #var = torch.var(torch.tensor(cutoff_metric_list[-min(cutoff_n, len(mi_traj)):]))
             # if var < cutoff_var and len(cutoff_metric_list) > cutoff_n:
             #     break
-            if torch.mean(torch.tensor(cutoff_metric_list[-min(cutoff_n, len(mi_traj)):])) > cutoff_value and len(cutoff_metric_list) > cutoff_n:
-                break
+            if cutoff_value < torch.inf:
+                if torch.mean(torch.tensor(cutoff_metric_list[-min(cutoff_n, len(mi_traj)):])) > cutoff_value and len(cutoff_metric_list) > cutoff_n:
+                    break
 
             # load the model from the checkpoint
             model.load_state_dict(torch.load(os.path.join(model_dir, checkpoint_name[:-1])))
@@ -71,17 +72,16 @@ def main(config_path: Path):
                 data = minibatch['data'].to(model.device).float()
 
                 # save latent code
-                cov_z, proj_z, latent_batch = model.forward(data, sample=True)
+                latent_batch, mi, loss_batch = model.get_latent_mi_loss(data)
                 latent.append(latent_batch)
                 # compute loss
-                loss_batch = model.loss(data)
-                loss.append(loss_batch['loss'])
+                loss.append(loss_batch)
 
-            metrics = model.metric(cov_z, proj_z)
-            mi_traj.append(metrics['mi'])
+            mi_traj.append(mi)
 
             # lr
             lr_traj.append(trainer.optimizer.param_groups[0]['lr'])
+
 
             latent = torch.cat(latent, dim=0)
             latent_traj.append(latent.detach().cpu())
@@ -93,17 +93,21 @@ def main(config_path: Path):
         latent_traj = torch.stack(latent_traj, dim=1)
         lr_traj = torch.tensor(lr_traj)
         loss_traj = torch.tensor(loss_traj)
-        mi_traj = torch.tensor(mi_traj)
 
         print(f'saving latent codes of shape {latent_traj.size()} to', os.path.join(save_dir, model_name, 'latent.pt'))
         print(f'saving learning rates of shape {lr_traj.size()} to', os.path.join(save_dir, model_name, 'learn_rate.pt'))
         print(f'saving loss of shape {loss_traj.size()} to', os.path.join(save_dir, model_name, 'loss.pt'))
-        print(f'saving mi of shape {mi_traj.size()} to', os.path.join(save_dir, model_name, 'mi.pt'))
 
         torch.save(latent_traj.detach().cpu(), os.path.join(save_dir, model_name, 'latent.pt'))
         torch.save(lr_traj.detach().cpu(), os.path.join(save_dir, model_name, 'learn_rate.pt'))
         torch.save(loss_traj.detach().cpu(), os.path.join(save_dir, model_name, 'loss.pt'))
-        torch.save(mi_traj.detach().cpu(), os.path.join(save_dir, model_name, 'mi.pt'))
+
+        if mi_traj[0] is not None:
+            mi_traj = torch.tensor(mi_traj)
+            print(f'saving mi of shape {mi_traj.size()} to', os.path.join(save_dir, model_name, 'mi.pt'))
+            torch.save(mi_traj.detach().cpu(), os.path.join(save_dir, model_name, 'mi.pt'))
+
+
 
         # if isinstance(model.model, CatVAE):
         #     print(f'saving mi of length {len(mi_traj)} to', os.path.join(save_dir, model_name, 'mi.pt'))

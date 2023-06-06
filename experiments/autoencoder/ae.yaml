@@ -1,4 +1,4 @@
-name: ppca/
+name: ae/
 num_runs: 1
 device: cuda:0
 seed: 1
@@ -7,14 +7,15 @@ model:
   module: diffusion.models.autoencoder
   name: AE
   args:
-    dummy: dummy
+    encoder_layer_dims: !!python/tuple []
+    decoder_layer_dims: !!python/tuple []
 
 loader:
   module: diffusion.data.dataloaders
   name: DataLoaderLatent
   args:
     path: /raid/data/gaussian_linear/
-    batch_size: [32]
+    batch_size: [64]
 
 optimizer:
   module: torch.optim
