@@ -11,19 +11,6 @@ class BaseScheduler(ABC):
     def get_scheduled_variable_value(self, epoch):
         raise NotImplementedError('cannot use BaseScheduler as a scheduler')
 
-class ConstantScheduler(BaseScheduler):
-    """
-    keeps the scheduled variable constant
-    :param kwargs
-        scheduled_variable: str, name of variable of model class to be scheduled
-        value: type of scheduled_variable, the value of the scheduled variable
-    """
-    def __init__(self, **kwargs):
-        super(ConstantScheduler, self).__init__(**kwargs)
-        self.value = kwargs.get('value')
-
-    def get_scheduled_variable_value(self, epoch):
-        return self.value
 
 class HalvingScheduler(BaseScheduler):
     """
@@ -42,3 +29,20 @@ class HalvingScheduler(BaseScheduler):
         if epoch in self.halve_after_epochs:
             self.value /= 2.0
         return self.value
+
+
+class LinearScheduler(BaseScheduler):
+    """
+    keeps the scheduled variable constant
+    :param kwargs
+        scheduled_variable: str, name of variable of model class to be scheduled
+        value: type of scheduled_variable, the value of the scheduled variable
+    """
+    def __init__(self, **kwargs):
+        super(LinearScheduler, self).__init__(**kwargs)
+        self.value = kwargs.get('start_value', .001)
+        self.increase_per_epoch = kwargs.get('increase_per_epoch', 0)
+
+    def get_scheduled_variable_value(self, epoch):
+        return self.value + self.increase_per_epoch * epoch
+
