@@ -1,0 +1,9 @@
+name: neuron/
+device: cuda:0
+num_runs: 1
+seed: 1
+
+
+args:
+  model_dir: /rdata/results/neuron/1d/_trainer_lr_scheduler_increase_per_epoch_0.001/
+  path: /raid/data/neep

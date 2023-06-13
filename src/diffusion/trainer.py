@@ -2,6 +2,7 @@ import math
 import os
 import shutil
 from datetime import datetime
+import csv
 
 import torch
 from matplotlib import pyplot as plt
@@ -36,7 +37,7 @@ class Trainer:
         self.optimizer = create_instance(config['optimizer']['module'], config['optimizer']['name'],
                                          config['optimizer']['args'], self.model.parameters())
 
-        name = self.get_name(config)
+        self.name = self.get_name(config)
         if kwargs.get('no_training', False):
             return
 
@@ -44,17 +45,17 @@ class Trainer:
         assert self.n_epochs is not None, 'n_epochs not provided to trainer'
 
         # logging
-        timestamp = self.get_timestamp()
         self.log_dir = kwargs.get('log_dir')
+        timestamp = self.get_timestamp()
         assert self.log_dir is not None, 'log_dir not provided to trainer'
-        log_dir = os.path.join(self.log_dir, name, timestamp)
+        log_dir = os.path.join(self.log_dir, self.name, timestamp)
         self.writer = SummaryWriter(log_dir=log_dir)
         self.metric_avg = MetricAccumulator()
 
         # saving
         self.bm_metric = kwargs.get('bm_metric', 'loss')
         self.save_dir = kwargs.get('save_dir')
-        self.save_dir = os.path.join(self.save_dir, name, timestamp)
+        self.save_dir = os.path.join(self.save_dir, self.name, timestamp)
         self.best_metric = None
         if not os.path.exists(self.save_dir):
             os.makedirs(self.save_dir)
@@ -122,10 +123,11 @@ class Trainer:
             torch.save(self.model.state_dict(), os.path.join(self.save_dir, 'best_model.pth'))
             self.early_stop_counter = 0
 
-    @staticmethod
-    def get_timestamp():
+    def get_timestamp(self):
         dt_obj = datetime.now()
         timestamp = dt_obj.strftime('%m%d-%H%M%S')
+        while os.path.exists(os.path.join(self.log_dir, self.name, timestamp)):
+            timestamp += '-'
         return timestamp
 
     def save_config(self, config):
@@ -328,5 +330,36 @@ class AETrainer(Trainer):
         with open(os.path.join(self.save_dir, 'checkpoint_names.txt'), 'a') as checkpoint_file:
             checkpoint_file.write(checkpoint_name + '\n')
 
+class ClassificationTrainer(Trainer):
+    """
+    This Trainer saves model weights after every gradient update
+    It also sets the output dimension of a classifier
+    """
+    def __init__(self, config, **kwargs):
+        super(ClassificationTrainer, self).__init__(config, **kwargs)
+        self.parameter_file_path = os.path.join(self.save_dir, 'parameter_trajectory.csv')
+        self.lr_file_path = os.path.join(self.save_dir, 'lr_trajectory.csv')
 
+    def create_model(self, config):
+        config['model']['args']['n_classes'] = self.data_loader.n_classes
+        self.model = get_model(config, data_shape=self.data_loader.data_shape)
+
+    def save_model(self, epoch, step):
+
+        parameter_list = self._get_parameter_list()
+        with open(self.parameter_file_path, 'a') as f:
+            writer = csv.writer(f)
+            writer.writerow(parameter_list)
+
+        with open(self.lr_file_path, 'a') as f:
+            writer = csv.writer(f)
+            writer.writerow([self.optimizer.param_groups[0]['lr']])
+
+    def _get_parameter_list(self):
+        parameter_list = []
+        for parameter in self.model.parameters():
+            parameter = parameter.detach().cpu().flatten().tolist()
+            parameter_list += parameter
+
+        return parameter_list
 

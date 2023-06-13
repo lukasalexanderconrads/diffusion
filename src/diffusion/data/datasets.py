@@ -1,10 +1,12 @@
 import torch
+from matplotlib import pyplot as plt
 from torch.utils.data import Dataset
 import torchvision
 import os
 import re
 import numpy as np
 from math import floor, ceil
+from sklearn.datasets import make_classification
 
 import json
 
@@ -350,6 +352,59 @@ class LatentDataset:
     def __len__(self):
         return self.data.size(0)
 
+
+class TeacherDataset:
+
+    def __init__(self, set='train', **kwargs):
+        self.set = set
+
+        self.data_shape = kwargs.get('data_dim', 1)
+        self.n_classes = 2
+        self.n_samples = kwargs.get('n_samples', 5000)
+        self.seed = kwargs.get('seed', 1)
+
+        self.teacher = torch.tensor(kwargs.get('teacher', [1] * self.data_shape), dtype=torch.float32)
+
+        self.data, self.label = self._get_data()
+
+    def _get_data(self):
+        rng = torch.Generator().manual_seed(self.seed)
+        data = torch.randn((self.n_samples, self.data_shape), generator=rng)
+        label = (torch.matmul(data, self.teacher.unsqueeze(-1)) >= 0).squeeze()
+        return data, label
+
+    def __getitem__(self, item):
+        return {'data': self.data[item],
+                'label': self.label[item]}
+    def __len__(self):
+        return self.data.size(0)
+class ClassificationDataset:
+
+    def __init__(self, set='train', **kwargs):
+        self.set = set
+
+        self.data_shape = kwargs.get('data_dim', 2)
+        self.n_classes = kwargs.get('n_classes', 2)
+        self.n_samples = kwargs.get('n_samples', 5000)
+        self.seed = kwargs.get('seed', 1)
+        self.data, self.label = self._get_data()
+
+    def _get_data(self):
+        data, label = make_classification(n_samples=self.n_samples, n_features=self.data_shape, n_classes=self.n_classes,
+                                           n_repeated=0, n_redundant=0, random_state=self.seed)
+
+        data = torch.tensor(data)
+        label = torch.tensor(label)
+
+        return data, label
+
+    def __getitem__(self, item):
+        return {'data': self.data[item],
+                'label': self.label[item]}
+    def __len__(self):
+        return self.data.size(0)
+
+
 def get_values_from_file_name(string, variable):
     pattern = rf"{variable}_(\d+)"
     match = re.search(pattern, string)
@@ -360,5 +415,8 @@ def get_values_from_file_name(string, variable):
         raise Exception(f'{variable} not contained in {string}')
 
 if __name__ == '__main__':
-    dataset = DiffusionTrajectoryDataset(model='DDPM',
-                                         path_to_image_data='/raid/data/cifar10')
+    dataset = TeacherDataset(n_samples=20)
+
+
+    print(dataset.data[dataset.label == 0])
+    print(dataset.data[dataset.label == 1])

@@ -1,0 +1,43 @@
+name: neuron/1d/
+num_runs: 200
+device: cuda:0
+seed: 2
+change_seed: True
+
+model:
+  module: diffusion.models.classifier
+  name: HebbianNeuron
+  args:
+    dummy: dummy
+
+loader:
+  module: diffusion.data.dataloaders
+  name: DataLoaderTeacher
+  args:
+    n_samples: 9
+    train_fraction: .3
+    path: /raid/data/1d2c/
+    batch_size: 1
+
+optimizer:
+  module: torch.optim
+  name: SGD
+  args:
+    lr: 1
+
+trainer:
+  module: diffusion.trainer
+  name: ClassificationTrainer
+  args:
+    n_epochs: 50
+    bm_metric: loss
+#    early_stop_criterion: 20 # if no improvement over this many epochs, stop training
+    log_dir: /rdata/results
+    save_dir: /rdata/results
+
+    lr_scheduler:
+      module: diffusion.utils.schedulers
+      name: LinearScheduler
+      args:
+        start_value: 0
+        increase_per_epoch: [.001]

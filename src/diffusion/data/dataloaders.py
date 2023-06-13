@@ -18,6 +18,36 @@ class DataLoaderMNIST:
         self.data_shape = self.train.dataset.data_shape
         self.n_classes = self.train.dataset.n_classes
 
+class DataLoaderClassification:
+    def __init__(self, batch_size: int = 1, **kwargs):
+        n_samples = kwargs.pop('n_samples', 5000)
+        train_fraction = kwargs.get('train_fraction', .8)
+
+        train_set = ClassificationDataset(set='train', n_samples=int(n_samples*train_fraction), **kwargs)
+        valid_set = ClassificationDataset(set='valid', n_samples=int(n_samples*(1-train_fraction)/2), **kwargs)
+        test_set = ClassificationDataset(set='test', n_samples=int(n_samples*(1-train_fraction)/2), **kwargs)
+        self.train = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
+        self.valid = DataLoader(valid_set, batch_size=batch_size, shuffle=True, drop_last=True)
+        self.test = DataLoader(test_set, batch_size=batch_size, shuffle=True, drop_last=True)
+
+        self.data_shape = self.train.dataset.data_shape
+        self.n_classes = self.train.dataset.n_classes
+
+class DataLoaderTeacher:
+    def __init__(self, batch_size: int = 1, **kwargs):
+        n_samples = kwargs.pop('n_samples', 5000)
+        train_fraction = kwargs.get('train_fraction', .8)
+
+        train_set = TeacherDataset(set='train', n_samples=int(n_samples*train_fraction), **kwargs)
+        valid_set = TeacherDataset(set='valid', n_samples=int(n_samples*(1-train_fraction)/2), **kwargs)
+        test_set = TeacherDataset(set='test', n_samples=int(n_samples*(1-train_fraction)/2), **kwargs)
+        self.train = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
+        self.valid = DataLoader(valid_set, batch_size=batch_size, shuffle=True, drop_last=True)
+        self.test = DataLoader(test_set, batch_size=batch_size, shuffle=True, drop_last=True)
+
+        self.data_shape = self.train.dataset.data_shape
+        self.n_classes = self.train.dataset.n_classes
+
 class DataLoaderTrajectory:
     def __init__(self, batch_size: int = 1, **kwargs):
         standardize = kwargs.get('standardize', True)
