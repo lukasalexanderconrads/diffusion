@@ -16,10 +16,12 @@ def main(config_path: Path):
     seed = configs.get('seed', 1)
     data_seed = configs['loader'].get('seed', 1)
 
-
-    for config in config_list:
+    num_runs = len(config_list)
+    for i, config in enumerate(config_list):
+        print(f'model {i} out of {num_runs}')
         config['seed'] = seed
-        #seed += 1
+        if config.get('change_seed', False):
+            seed += 1
         config['loader']['seed'] = data_seed
         #data_seed += 1
 
