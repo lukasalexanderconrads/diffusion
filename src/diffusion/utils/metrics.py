@@ -55,6 +55,8 @@ class MetricAccumulator:
         :param metrics: new metric values, dict of floats
         """
         for key, value in metrics.items():
+            if isinstance(value, torch.Tensor):
+                value = value.cpu()
             # if key is to be excluded from averaging, save in list
             if key in self.concat_keys:
                 self.metrics[key] = [] if self.metrics[key] == 0 else self.metrics[key]

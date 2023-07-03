@@ -169,24 +169,24 @@ def get_random_hermitian(dim, allow_singular=True, unitary=False, rng=None):
         if allow_singular or not np.isclose(np.linalg.det(A), 0):
             return A
 
-def get_well_conditioned_hermitian(dim, allow_singular=True, rng=None):
+def get_well_conditioned_hermitian(dim, allow_singular=True, rng=None, max_cond_number=5):
     """
     :param dim: size of the matrix
     :param allow_singular: if matrix is allowed to be singular
     :return: hermitian matrix of shape [dim, dim]
     """
     rng = np.random.default_rng() if rng is None else rng
-    noise_var = .1
+    noise_var = 1
     while True:
 
-        Q_root = rng.random((dim, dim))
+        Q_root = rng.standard_normal((dim, dim))
         Q, _ = np.linalg.qr(Q_root)
-        Q += np.random.randn(dim, dim) * noise_var
+        Q += rng.standard_normal((dim, dim)) * noise_var
         A = Q @ Q.T
         cond_num = np.linalg.cond(A)
         print(cond_num)
         noise_var /= 2
-        if (allow_singular or not np.isclose(np.linalg.det(A), 0)) and cond_num < 10:
+        if (allow_singular or not np.isclose(np.linalg.det(A), 0)) and cond_num < max_cond_number:
             return A
 
 def get_random_matrix(dim, allow_singular=True, rng=None):

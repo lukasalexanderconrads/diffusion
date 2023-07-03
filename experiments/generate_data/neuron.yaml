@@ -5,5 +5,5 @@ seed: 1
 
 
 args:
-  model_dir: /rdata/results/neuron/1d/_trainer_lr_scheduler_increase_per_epoch_0.001/
+  model_dir: /rdata/results/neuron/1d/_optimizer_lr_8/
   path: /raid/data/neep

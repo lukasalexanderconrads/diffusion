@@ -23,8 +23,10 @@ loader:
   args:
     batch_size: 64
     train_fraction: .8
-    path: /raid/data/neep/mv_ou_process/_dim_3_T_40_num_steps_5000_num_samples_5000
+    path: /raid/data/neep/mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_10000_max_cond_number_10
     standardize: false
+#    max_time_step: [1000]
+
 
 
 optimizer:
@@ -40,7 +42,7 @@ trainer:
     n_epochs: 500
     bm_metric: loss
     early_stop_criterion: 30 # if no improvement over this many epochs, stop training
-    log_plots_every_n_epochs: 10
+    log_plots_every_n_epochs: 50
     log_dir: /rdata/results
     save_dir: /rdata/results
 

@@ -3,12 +3,14 @@ device: cuda:0
 num_runs: 1
 seed: 1
 
-
 args:
-  cutoff_metric: mi # metric to use for cutoff
+  #cutoff_metric: mi # metric to use for cutoff
   #cutoff_var: .000001 # variance under which trajectory is cut off
-  cutoff_n: 10 # variance over last n epochs
+  #cutoff_n: 10 # variance over last n epochs
   #cutoff_value: 1.45 # mean above which trajectory is cut off
-  model_dir: /rdata/results/ppca/_optimizer_lr_0.0001/0605-201352
-  batch_size: 2500
+  model_dir: /raid/results/ppca/_optimizer_lr_0.0005/
+  cov_factor: 1
+  batch_size: 5000
+  trajectories_per_model: 15000
+#  num_steps: 2
   path: /raid/data/neep

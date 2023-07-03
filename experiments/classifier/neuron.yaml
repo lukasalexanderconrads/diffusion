@@ -1,7 +1,7 @@
 name: neuron/1d/
-num_runs: 200
+num_runs: 1000
 device: cuda:0
-seed: 2
+seed: 1
 change_seed: True
 
 model:
@@ -14,7 +14,7 @@ loader:
   module: diffusion.data.dataloaders
   name: DataLoaderTeacher
   args:
-    n_samples: 9
+    n_samples: 6
     train_fraction: .3
     path: /raid/data/1d2c/
     batch_size: 1
@@ -23,21 +23,22 @@ optimizer:
   module: torch.optim
   name: SGD
   args:
-    lr: 1
+    lr: [8]
 
 trainer:
   module: diffusion.trainer
   name: ClassificationTrainer
   args:
-    n_epochs: 50
+    n_epochs: 10000
     bm_metric: loss
 #    early_stop_criterion: 20 # if no improvement over this many epochs, stop training
     log_dir: /rdata/results
     save_dir: /rdata/results
 
-    lr_scheduler:
-      module: diffusion.utils.schedulers
-      name: LinearScheduler
-      args:
-        start_value: 0
-        increase_per_epoch: [.001]
+    schedulers: !!python/tuple
+      - module: diffusion.utils.schedulers
+        name: LinearScheduler
+        args:
+          scheduled_variable: learning_force_multiplier
+          start_value: 0
+          increase_per_epoch: .0001

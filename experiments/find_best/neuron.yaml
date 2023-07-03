@@ -12,17 +12,19 @@ model:
   name: NEEP
   args:
     estimator_type: simple
-    layer_dims: [!!python/tuple [8, 16]]
+    layer_dims: [!!python/tuple [2, 2]]
     kernel: gaussian
+#    dropout: .8
 
 loader:
   module: diffusion.data.dataloaders
   name: DataLoaderTrajectoryAE
   args:
-    batch_size: 8
+    batch_size: 64
     train_fraction: .8
-    path: /raid/data/neep/neuron/1d/_trainer_lr_scheduler_increase_per_epoch_0.001/
+    path: /raid/data/neep/neuron/1d/_optimizer_lr_8/
     standardize: false
+#    n_time_steps: 1000
 
 
 optimizer:
@@ -35,9 +37,9 @@ trainer:
   module: diffusion.trainer
   name: EntropyTrainer
   args:
-    n_epochs: 500
+    n_epochs: 2000
     bm_metric: loss
-    early_stop_criterion: 30 # if no improvement over this many epochs, stop training
+#    early_stop_criterion: 100 # if no improvement over this many epochs, stop training
     log_plots_every_n_epochs: 40
     log_dir: /rdata/results
     save_dir: /rdata/results
@@ -46,5 +48,5 @@ trainer:
       module: diffusion.schedulers
       name: HalvingScheduler
       args:
-        start_value: .01
-        halve_after_epochs: !!python/tuple [100, 200]
+        start_value: .002
+        halve_after_epochs: !!python/tuple [200, 500]

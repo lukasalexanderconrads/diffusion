@@ -1,5 +1,6 @@
 import torch
 from diffusion.models.base import BaseModel
+import math
 
 
 class HebbianNeuron(BaseModel):
@@ -7,6 +8,8 @@ class HebbianNeuron(BaseModel):
         super(HebbianNeuron, self).__init__(**kwargs)
 
         self.weight = torch.nn.Parameter(torch.randn((1, data_dim), device=self.device))
+
+        self.learning_force_multiplier = 1
 
 
     def forward(self, input):
@@ -18,7 +21,7 @@ class HebbianNeuron(BaseModel):
         prediction = activation > 0
         accuracy = torch.mean(torch.tensor(label == prediction, dtype=torch.float32))
 
-        return {'accuracy': accuracy}
+        return {'accuracy': accuracy, 'weight': self.weight.data}
 
 
 
@@ -31,7 +34,10 @@ class HebbianNeuron(BaseModel):
         stats = self.metrics(label, activation)
 
         label[label == 0] = -1
-        self.weight.data = self.weight.data + optimizer.param_groups[0]['lr'] * (data * label - self.weight.data)
+        lr = optimizer.param_groups[0]['lr']
+        learning_force = self.learning_force_multiplier * data * label * lr
+        thermal_noise = torch.randn(size=(1,), device=self.device) * math.sqrt(2)
+        self.weight.data = self.weight.data + (- self.weight.data + learning_force) + thermal_noise
 
         return stats
 

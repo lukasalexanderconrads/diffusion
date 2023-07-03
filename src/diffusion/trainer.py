@@ -38,6 +38,8 @@ class Trainer:
                                          config['optimizer']['args'], self.model.parameters())
 
         self.name = self.get_name(config)
+        self.metric_avg = MetricAccumulator()
+
         if kwargs.get('no_training', False):
             return
 
@@ -50,7 +52,6 @@ class Trainer:
         assert self.log_dir is not None, 'log_dir not provided to trainer'
         log_dir = os.path.join(self.log_dir, self.name, timestamp)
         self.writer = SummaryWriter(log_dir=log_dir)
-        self.metric_avg = MetricAccumulator()
 
         # saving
         self.bm_metric = kwargs.get('bm_metric', 'loss')
@@ -144,7 +145,7 @@ class Trainer:
 
     def update_scheduled_values(self, epoch):
         for scheduler in self.schedulers:
-            scheduler.update_scheduled_value(self.model, epoch)
+            scheduler.update_scheduled_variable(self.model, epoch)
 
     def update_lr(self, epoch):
         if hasattr(self, 'lr_scheduler'):
