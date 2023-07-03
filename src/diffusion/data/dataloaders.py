@@ -41,9 +41,12 @@ class DataLoaderTeacher:
         train_set = TeacherDataset(set='train', n_samples=int(n_samples*train_fraction), **kwargs)
         valid_set = TeacherDataset(set='valid', n_samples=int(n_samples*(1-train_fraction)/2), **kwargs)
         test_set = TeacherDataset(set='test', n_samples=int(n_samples*(1-train_fraction)/2), **kwargs)
-        self.train = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True)
-        self.valid = DataLoader(valid_set, batch_size=batch_size, shuffle=True, drop_last=True)
-        self.test = DataLoader(test_set, batch_size=batch_size, shuffle=True, drop_last=True)
+        rng = torch.Generator()
+        rng.manual_seed(kwargs.get('seed', 1))
+        print(rng.seed())
+        self.train = DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True, generator=rng)
+        self.valid = DataLoader(valid_set, batch_size=batch_size, shuffle=True, drop_last=True, generator=rng)
+        self.test = DataLoader(test_set, batch_size=batch_size, shuffle=True, drop_last=True, generator=rng)
 
         self.data_shape = self.train.dataset.data_shape
         self.n_classes = self.train.dataset.n_classes
@@ -115,7 +118,9 @@ class DataLoaderLatent:
         self.latent_shape = train_set.latent_shape
         if hasattr(train_set, 'max_likelihood_sol'):
             self.max_likelihood_sol = train_set.max_likelihood_sol
+        rng = torch.Generator()
+        rng.manual_seed(kwargs.get('seed', 1))
+        self.train = DataLoader(train_set, batch_size=batch_size, shuffle=shuffle, drop_last=True, generator=rng)
+        self.valid = DataLoader(valid_set, batch_size=batch_size, shuffle=shuffle, drop_last=True, generator=rng)
+        self.test = DataLoader(test_set, batch_size=batch_size, shuffle=shuffle, drop_last=True, generator=rng)
 
-        self.train = DataLoader(train_set, batch_size=batch_size, shuffle=shuffle, drop_last=True)
-        self.valid = DataLoader(valid_set, batch_size=batch_size, shuffle=shuffle, drop_last=True)
-        self.test = DataLoader(test_set, batch_size=batch_size, shuffle=shuffle, drop_last=True)

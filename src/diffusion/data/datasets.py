@@ -173,6 +173,8 @@ class TrajectoryDatasetLazy(Dataset):
         self.seed = kwargs.get('seed', 1)
         self.path = kwargs.get('path', './data')
         self.train_fraction = kwargs.get('train_fraction', .8)
+        self.max_time_step = kwargs.get('max_time_step', None)
+
 
         self._prep_data()
 
@@ -187,11 +189,16 @@ class TrajectoryDatasetLazy(Dataset):
         data_shape = (get_values_from_file_name(self.path, 'num_samples'),
                       get_values_from_file_name(self.path, 'num_steps'),
                       get_values_from_file_name(self.path, 'dim'))
+
         self.data = np.memmap(path_to_data, dtype='float32', mode='r', shape=data_shape)  # [n_trajects, traject_length, data_dim]
         self.time_points = np.load(path_to_time_points, mmap_mode='r')    # [n_trajects, traject_length]
+        if self.max_time_step is not None:
+            self.data = self.data[:, :self.max_time_step]
+            self.time_points = self.time_points[:, :self.max_time_step]
         if os.path.exists(path_to_exact_epr):
             self.exact_epr = torch.from_numpy(np.load(path_to_exact_epr))[:-1]
-
+            if self.max_time_step is not None:
+                self.exact_epr = self.exact_epr[:self.max_time_step-1]
         # shuffle data and split according to set
         rng = np.random.default_rng(self.seed)
         shuffled_indices = rng.permutation(self.data.shape[0])
@@ -221,22 +228,36 @@ class TrajectoryDatasetLazy(Dataset):
 
     def __len__(self):
         return self.indices.shape[0]
-class TrajectoryDatasetAE(TrajectoryDataset):
+class TrajectoryDatasetAE(Dataset):
     def __init__(self, set='train', **kwargs):
+        super(TrajectoryDatasetAE, self).__init__()
         self.n_time_steps = kwargs.get('n_time_steps', None)
-        super(TrajectoryDatasetAE, self).__init__(set, **kwargs)
+        self.max_time_step = kwargs.get('max_time_step', None)
+        self.set = set
+        self.seed = kwargs.get('seed', 1)
+        self.path = kwargs.get('path', './data')
+        self.train_fraction = kwargs.get('train_fraction', .8)
+
+        time_points = self._get_data()
+
+        self.time_points = time_points.float()  # [batch_size, traject_length, 2]
+
+        self.data_shape = self.data.shape[-1]
+        self.max_time = float(torch.max(time_points))
 
     def _get_data(self):
-        path_to_data = os.path.join(self.path, 'latent.pt')
+        path_to_data = os.path.join(self.path, 'latent.dat')
+        path_to_data_shape = os.path.join(self.path, 'data_shape.npy')
         path_to_lr = os.path.join(self.path, 'learn_rate.pt')
         path_to_mi = os.path.join(self.path, 'mi.pt')
         path_to_loss = os.path.join(self.path, 'loss.pt')
         path_to_bounds = os.path.join(self.path, 'bounds.pt')
 
-        data = torch.load(path_to_data, map_location="cpu")  # [n_series, total_series_length, data_dim]
+        data_shape = tuple(np.load(path_to_data_shape))
+        self.data = np.memmap(path_to_data, dtype='float32', mode='r', shape=data_shape)  # [n_trajects, traject_length, data_dim]
         lr = torch.load(path_to_lr, map_location="cpu")  # [total_series_length]
         lr[0] = 0
-        seq_len = data.shape[1]
+        seq_len = data_shape[1]
         if os.path.exists(path_to_mi):
             self.mi = torch.load(path_to_mi, map_location="cpu")[:seq_len-1]  # [total_series_length]
         if os.path.exists(path_to_loss):
@@ -244,54 +265,57 @@ class TrajectoryDatasetAE(TrajectoryDataset):
         if os.path.exists(path_to_bounds):
             self.bounds = torch.load(path_to_bounds, map_location="cpu")  # [total_series_length]
 
+        if self.max_time_step is not None:
+            self.data = self.data[:, :self.max_time_step]
+            lr = lr[:self.max_time_step]
+            if hasattr(self, 'mi'):
+                self.mi = self.mi[:self.max_time_step-1]
+            if hasattr(self, 'loss'):
+                self.loss = self.loss[:self.max_time_step-1]
+            if hasattr(self, 'bounds'):
+                self.bounds = self.bounds[:self.max_time_step-1]
+
         # shuffle data and split according to set
         rng = np.random.default_rng(self.seed)
-        shuffled_indices = rng.permutation(data.size(0))
-        data = data[shuffled_indices]
-        n_train_samples = floor(self.train_fraction * data.size(0))
-        n_valid_samples = ceil((1 - self.train_fraction) / 2 * data.size(0))
+        shuffled_indices = rng.permutation(data_shape[0])
+        n_train_samples = floor(self.train_fraction * data_shape[0])
+        n_valid_samples = ceil((1 - self.train_fraction) / 2 * data_shape[0])
         if self.set == 'train':
-            data = data[:n_train_samples]
+            self.indices = shuffled_indices[:n_train_samples]
         if self.set == 'valid':
-            data = data[n_train_samples:(n_train_samples + n_valid_samples)]
+            self.indices = shuffled_indices[n_train_samples:(n_train_samples + n_valid_samples)]
         if self.set == 'test':
-            data = data[(n_train_samples + n_valid_samples):]
+            self.indices = shuffled_indices[(n_train_samples + n_valid_samples):]
 
-        n_series, _, dim = data.shape
-        # if self.n_time_steps is not None:
-        #     idx1 = torch.arange(0, seq_len - 1, step=int(seq_len / self.n_time_steps))
-        #     idx2 = 1 + idx1
-        #     idx, _ = torch.sort(torch.cat((idx1, idx2), dim=0))
-        #     data = data[:, idx].reshape(n_series, -1, 2, dim)  # [n_series, n_time_steps+1, 2, data_dim]
-        #     time_points = torch.cumsum(lr, 0)  # [total_series_length]
-        #     time_points = time_points[idx].reshape(-1, 2)  # [n_time_steps+1, 2]
-        #     time_points = time_points.unsqueeze(0).repeat(n_series, 1, 1)  # [n_series, n_time_steps+1, 2]
-        #else:
-        data = data.repeat_interleave(2, dim=1)  # [n_series, total_series_length * 2, data_dim]
-        data = data[:, 1:-1]  # [n_series, (total_series_length - 1) * 2, data_dim]
-        data = data.reshape(n_series, -1, 2, dim)  # [n_series, total_series_length - 1, 2, data_dim]
+        n_series = len(self.indices)
 
         time_points = torch.cumsum(lr, 0)  # [total_series_length]
         time_points = time_points.repeat_interleave(2, dim=0)  # [total_series_length * 2]
         time_points = time_points[1:-1]  # [(total_series_length - 1) * 2]
         time_points = time_points.unsqueeze(0).repeat(n_series, 1)  # [n_series, (total_series_length - 1) * 2]
         time_points = time_points.reshape(n_series, -1, 2)  # [n_series, total_series_length - 1, 2]
-        if self.n_time_steps is not None:
-            idx = torch.arange(0, seq_len - 1, step=int(seq_len / self.n_time_steps))
-            data = data[:, idx]
-            time_points = time_points[:, idx]
-            if os.path.exists(path_to_mi):
-                self.mi = self.mi[idx]
-            if os.path.exists(path_to_loss):
-                self.loss = self.loss[idx]
+        # if self.n_time_steps is not None:
+        #     idx = torch.arange(0, seq_len - 1, step=int(seq_len / self.n_time_steps))
+        #     time_points = time_points[:, idx]
+        #     if os.path.exists(path_to_mi):
+        #         self.mi = self.mi[idx]
+        #     if os.path.exists(path_to_loss):
+        #         self.loss = self.loss[idx]
+        print('data_shape:', (len(self.indices), *data_shape[1:]))
 
-
-        print('data shape:', data.size())
-        return data, time_points
+        return time_points
 
     def __getitem__(self, item):
-        return {'data': self.data[item],
+        data = torch.from_numpy(self.data[self.indices[item]].copy())
+        data = data.repeat_interleave(2, dim=0)  # [n_series, total_series_length * 2, data_dim]
+        data = data[1:-1]  # [n_series, (total_series_length - 1) * 2, data_dim]
+        data = data.reshape(-1, 2, data.size(-1))  # [n_series, total_series_length - 1, 2, data_dim]
+        return {'data': data,
                 'time_point': self.time_points[item]}
+
+    def __len__(self):
+        return len(self.indices)
+
 class DiffusionTrajectoryDataset(TrajectoryDataset):
     def __init__(self, set='train', **kwargs):
         super(TrajectoryDataset, self).__init__()
@@ -370,7 +394,7 @@ class TeacherDataset:
     def _get_data(self):
         rng = torch.Generator().manual_seed(self.seed)
         data = torch.randn((self.n_samples, self.data_shape), generator=rng)
-        label = (torch.matmul(data, self.teacher.unsqueeze(-1)) >= 0).squeeze()
+        label = (torch.matmul(data, self.teacher.unsqueeze(-1)) >= 0).squeeze(-1)
         return data, label
 
     def __getitem__(self, item):
