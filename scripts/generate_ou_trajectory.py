@@ -30,12 +30,13 @@ def main(config_path: Path):
         var_0 = np.eye(dim)
 
         diagonal = kwargs.get('diagonal', False)
+        max_cond_number = kwargs.get('max_cond_number')
         if diagonal:
             A = get_random_diagonal_matrix(dim, rng=rng)
             B = get_random_diagonal_matrix(dim, allow_singular=False, rng=rng)
         else:
-            A = get_well_conditioned_hermitian(dim, rng=rng)
-            B = get_well_conditioned_hermitian(dim, allow_singular=False, rng=rng)
+            A = get_well_conditioned_hermitian(dim, rng=rng, max_cond_number=max_cond_number)
+            B = get_well_conditioned_hermitian(dim, allow_singular=False, rng=rng, max_cond_number=max_cond_number)
 
         T = kwargs['T']
         num_steps = kwargs['num_steps']
