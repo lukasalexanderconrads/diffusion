@@ -22,8 +22,9 @@ def main(config_path: Path):
         config['seed'] = seed
         if config.get('change_seed', False):
             seed += 1
-        config['loader']['seed'] = data_seed
-        #data_seed += 1
+        config['loader']['args']['seed'] = data_seed
+        if config['loader']['args'].get('change_seed', False):
+            data_seed += 1
 
         torch.manual_seed(config['seed'])
 
