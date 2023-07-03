@@ -64,21 +64,30 @@ def save_metrics(trainer, metrics_path, train_metrics, valid_metrics, layer_dims
         os.makedirs(metrics_path)
         with open(file_path, 'w') as file:
             writer = csv.writer(file)
-            writer.writerow(['layer_dims', 'train_loss', 'valid_loss', 'exact_ep', 'estimated_ep'])
+            writer.writerow(['layer_dims', 'train loss', 'valid loss', 'exact_ep', 'train ep var', 'valid ep var', 'valid ep simple'])
 
     layer_dims = str(layer_dims).replace(',', ' ')
 
     train_loss = float(train_metrics['loss'])
     valid_loss = float(valid_metrics['loss'])
 
-    current = valid_metrics['current']
+    valid_current = valid_metrics['current']
+    train_current = train_metrics['current']
     time_point = valid_metrics['time_point']
-    current = torch.concat(current, dim=0).cpu()
-    dt = (time_point[:, :, 1] - time_point[:, :, 0])[0].cpu()
+    valid_current = torch.concat(valid_current, dim=0)
+    train_current = torch.concat(train_current, dim=0)
     t_eval = (time_point[0, :, 0] + time_point[0, :, 1]).cpu() / 2
-    estimated_epr = (torch.max(trainer.model.estimators['var'](current), dim=-1).values / dt)
 
-    estimated_ep = float(simpson(estimated_epr, t_eval, even="avg"))
+    trainer.model.estimator_type = 'var'
+    valid_epr_var = trainer.model.get_entropy_production_rate(valid_current, time_point).cpu()
+    valid_ep_var = float(simpson(valid_epr_var, t_eval, even="avg"))
+    train_epr_var = trainer.model.get_entropy_production_rate(train_current, time_point).cpu()
+    train_ep_var = float(simpson(train_epr_var, t_eval, even="avg"))
+
+    trainer.model.estimator_type = 'simple'
+    epr_simple = trainer.model.get_entropy_production_rate(valid_current, time_point).cpu()
+    ep_simple = float(simpson(epr_simple, t_eval, even="avg"))
+
 
     if hasattr(trainer.data_loader.train.dataset, 'exact_epr'):
         exact_epr = trainer.data_loader.train.dataset.exact_epr
@@ -88,7 +97,7 @@ def save_metrics(trainer, metrics_path, train_metrics, valid_metrics, layer_dims
 
     with open(file_path, 'a') as file:
         writer = csv.writer(file)
-        writer.writerow([layer_dims, train_loss, valid_loss, exact_ep, estimated_ep])
+        writer.writerow([layer_dims, train_loss, valid_loss, exact_ep, train_ep_var, valid_ep_var, ep_simple])
 
 def print_experiment_info(config):
     print('-' * 10,
