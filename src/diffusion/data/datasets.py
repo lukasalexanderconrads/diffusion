@@ -253,8 +253,9 @@ class TrajectoryDatasetAE(Dataset):
         path_to_loss = os.path.join(self.path, 'loss.pt')
         path_to_bounds = os.path.join(self.path, 'bounds.pt')
 
-        data_shape = tuple(np.load(path_to_data_shape))
-        self.data = np.memmap(path_to_data, dtype='float32', mode='r', shape=data_shape)  # [n_trajects, traject_length, data_dim]
+        if os.path.exists(path_to_data):
+            data_shape = tuple(np.load(path_to_data_shape))
+            self.data = np.memmap(path_to_data, dtype='float32', mode='r', shape=data_shape)  # [n_trajects, traject_length, data_dim]
         lr = torch.load(path_to_lr, map_location="cpu")  # [total_series_length]
         lr[0] = 0
         seq_len = data_shape[1]
