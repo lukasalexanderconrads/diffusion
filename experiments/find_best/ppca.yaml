@@ -12,8 +12,9 @@ model:
   name: NEEP
   args:
     estimator_type: simple
-    layer_dims: [!!python/tuple [16, 16]]
+    layer_dims: [!!python/tuple [4, 4]]
     kernel: gaussian
+    loss_weight_exponential_parameters: !!python/tuple [10, 0.3]
 
 loader:
   module: diffusion.data.dataloaders

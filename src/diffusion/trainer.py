@@ -202,6 +202,10 @@ class EntropyTrainer(Trainer):
             exact_epr = self.data_loader.train.dataset.exact_epr
             plt.plot(t_eval, exact_epr, label=f'exact epr')
 
+        # plot loss weight if exists
+        if hasattr(self.model, 'loss_weight'):
+            plt.plot(t_eval, self.model.loss_weight.cpu(), label='loss weight')
+
 
         plt.legend()
         plt.xlabel('time')

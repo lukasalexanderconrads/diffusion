@@ -46,6 +46,9 @@ class NEEP(BaseModel):
 
         print(self.mlp)
 
+        # exponential curve that is weight for loss: can be None or [a, b] where weight(t) = a * exp(-t * b) + 1
+        self.loss_weight_exponential_parameters = kwargs.get('loss_weight_exponential_parameters', None)
+
         # if self.breathing_parabola_model:
         #     p = (10.0, 1.0)
         #     total_ep_ = quad(get_exact_ep_rate, 0, 1, args=(p,))
@@ -112,7 +115,10 @@ class NEEP(BaseModel):
         :param entropy_production_rate: estimated ep rate for each time points [T]
         :return: loss [1]
         """
-        loss = -torch.mean(entropy_production_rate)
+        if self.loss_weight_exponential_parameters is not None:
+            loss = -torch.mean(self.loss_weight * entropy_production_rate)
+        else:
+            loss = -torch.mean(entropy_production_rate)
         return {'loss': loss}
 
     def metric(self, entropy_production_rate, t) -> dict:
@@ -141,6 +147,7 @@ class NEEP(BaseModel):
     def train_step(self, minibatch: dict, optimizer: torch.optim.Optimizer) -> dict:
         x = minibatch['data'].to(self.device)          # [B,T,2,D]
         t = minibatch['time_point'].to(self.device)     # [B,T,2]
+        self._set_loss_weight(t)
 
         optimizer.zero_grad()
 
@@ -169,3 +176,9 @@ class NEEP(BaseModel):
         return loss_stats | metric_stats \
                | {'current': j,
                   'time_point': t}
+
+    def _set_loss_weight(self, t):
+        if not hasattr(self, 'loss_weight') and self.loss_weight_exponential_parameters is not None:
+            a, b = self.loss_weight_exponential_parameters
+            self.loss_weight = a * torch.exp(- t[0, :, 0] * b) + 1
+

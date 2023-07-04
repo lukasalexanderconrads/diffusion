@@ -15,7 +15,8 @@ model:
     estimator_type: simple
     layer_dims: [!!python/tuple [2, 2]]
     kernel: gaussian
-    dropout: 0
+    loss_weight_exponential_parameters: !!python/tuple [ 10, 2.3 ]
+
 
 loader:
   module: diffusion.data.dataloaders
@@ -23,7 +24,7 @@ loader:
   args:
     batch_size: 64
     train_fraction: .8
-    path: /raid/data/neep/mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_10000_max_cond_number_10
+    path: /raid/data/neep/mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_1000
     standardize: false
 #    max_time_step: [1000]
 
