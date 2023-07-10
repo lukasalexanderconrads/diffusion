@@ -3,7 +3,8 @@ from torch import nn
 from scipy.integrate import quad, simpson
 
 from diffusion.models.base import BaseModel
-from diffusion.utils.helpers import create_mlp
+from diffusion.utils.helpers import create_mlp, create_local_mlps
+import matplotlib.pyplot as plt
 
 
 class NEEP(BaseModel):
@@ -11,25 +12,44 @@ class NEEP(BaseModel):
     Neural estimator for entropy production
     """
 
-    def __init__(self, data_dim, **kwargs):
+    def __init__(self, data_shape, **kwargs):
         super(NEEP, self).__init__(**kwargs)
 
         self.estimator_type = kwargs.get('estimator_type')
 
         layer_dims = kwargs.get('layer_dims').copy()
 
+        # list of fractions, e.g. [.2, .5] will train 3 separate networks, for time points [0, .2T], [.2T, .5T], [.5T, 1]
+        time_step_separation = kwargs.get('time_step_separation', [])
+        self.n_units = len(time_step_separation) + 1
+        self.time_step_separation_points = torch.tensor([0] + time_step_separation + [1], device=self.device, dtype=torch.float32)
 
         self.max_time = kwargs.get('max_time')
+        self.time_step_separation_points *= self.max_time
 
         self.kernel = kwargs.get('kernel', 'gaussian')
-        self.data_dim = data_dim
+        self.data_dim = data_dim = data_shape[1]
+        # data_shape[0] time points, so one less step
+        self.n_time_steps = data_shape[0] - 1
         if self.kernel == 'gaussian':
-            self.out_dim = layer_dims[-1]
+            self.out_dim_per_unit = layer_dims[-1]
+            self.out_dim = self.out_dim_per_unit * self.n_units
             layer_dims[-1] *= data_dim
             layer_dims = [data_dim] + layer_dims
 
-            self.t_centers = nn.Parameter(torch.arange(self.out_dim, device=self.device).unsqueeze(0).unsqueeze(1) \
-                                          * self.max_time / (self.out_dim - 1))  # [1, 1, out_dim]
+            if time_step_separation:
+                t_centers_list = []
+                for i in range(len(self.time_step_separation_points) - 1):
+                    time_interval_length = self.time_step_separation_points[i+1] - self.time_step_separation_points[i]
+                    t_centers = torch.arange(self.out_dim_per_unit, device=self.device).unsqueeze(0).unsqueeze(1) \
+                                              * time_interval_length / (self.out_dim_per_unit - 1) \
+                                              + self.time_step_separation_points[i]
+                    t_centers_list.append(t_centers)
+                self.t_centers = nn.Parameter(torch.cat(t_centers_list, dim=-1))
+            else:
+                self.t_centers = nn.Parameter(torch.arange(self.out_dim, device=self.device).unsqueeze(0).unsqueeze(1) \
+                                              * self.max_time / (self.out_dim - 1))  # [1, 1, out_dim]
+
             self.bias = nn.Parameter(torch.ones_like(self.t_centers, device=self.device) \
                                  * self.max_time / (self.out_dim - 1))  # [1, 1, out_dim]
         elif self.kernel == 'exponential':
@@ -41,8 +61,27 @@ class NEEP(BaseModel):
             layer_dims = [data_dim] + layer_dims
             self.exp_params = nn.Parameter(torch.randn((4, data_dim), device=self.device))
 
+        # mask for time step separation
+        self.t_mask = torch.ones((self.n_time_steps, self.out_dim), device=self.device)
+        time_points = torch.arange(self.n_time_steps, device=self.device) / self.n_time_steps * self.max_time
+        time_points = time_points.unsqueeze(1).repeat(1, self.out_dim_per_unit)
+        for i in range(len(self.time_step_separation_points) - 1):
+            t_min = self.time_step_separation_points[i]
+            t_max = self.time_step_separation_points[i + 1]
+            submask = self.t_mask[:, self.out_dim_per_unit * i : self.out_dim_per_unit * (i + 1)]
+            submask[time_points < t_min] = 0
+            submask[time_points >= t_max] = 0
+            self.t_mask[:, self.out_dim_per_unit * i : self.out_dim_per_unit * (i + 1)] = submask
+
+        self.t_mask = self.t_mask.unsqueeze(0).unsqueeze(-1)
+
+
+
         self.dropout = kwargs.get('dropout', .0)
-        self.mlp = create_mlp(layer_dims, dropout=self.dropout).to(self.device)
+        if time_step_separation:
+            self.mlp = create_local_mlps(self.n_units, layer_dims, dropout=self.dropout).to(self.device)
+        else:
+            self.mlp = create_mlp(layer_dims, dropout=self.dropout).to(self.device)
 
         print(self.mlp)
 
@@ -80,7 +119,10 @@ class NEEP(BaseModel):
         if self.kernel == 'gaussian':
             t_in = t_in.unsqueeze(-1).repeat(1, 1, self.out_dim)  # [B, T, out_dim]
             # equation 22
-            t_gaussian = torch.exp(-torch.pow((t_in - self.t_centers) / self.bias, 2))[:, :, :, None]  # [B, T, out_dim, 1]
+            t_gaussian = torch.exp(-torch.pow((t_in - self.t_centers) / self.bias, 2))[:, :, :, None] * self.t_mask  # [B, T, out_dim, 1]
+            # for i in range(self.out_dim):
+            #     plt.plot(t_in[0].cpu(), t_gaussian[0, :, i, 0].detach().cpu())
+            # plt.show()
             d = torch.sum(d_vec * t_gaussian, dim=2)  # [B, T, D]
         if self.kernel == 'exponential':
             t_in = t_in.unsqueeze(-1)

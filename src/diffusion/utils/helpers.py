@@ -5,6 +5,8 @@ from importlib import import_module
 import numpy as np
 import scipy as sp
 
+from diffusion.blocks.layers import LocallyConnected
+
 
 def read_yaml(path):
     """
@@ -43,12 +45,12 @@ def create_instance(module_name: str, class_name: str, kwargs, *args):
 def create_mlp(layer_dims, activation_fn=nn.ReLU(), out_activation=False, dropout=.0, out_dropout=False, layer_normalization=False, out_layernorm=False):
     """
     create a Multilayer Perceptron
-    :param layer_dims: dimensions of the MLP layers, list of int
-    :param activation_fn: activation function after hidden layers, function
+    :param layer_dims: dimensions of the MLP blocks, list of int
+    :param activation_fn: activation function after hidden blocks, function
     :param out_activation: activation function after output layer, function
-    :param dropout: dropout applied after hidden layers, float
+    :param dropout: dropout applied after hidden blocks, float
     :param out_dropout: dropout applied after output layer, float
-    :param layer_normalization: if layer normalization is applied after hidden layers, bool
+    :param layer_normalization: if layer normalization is applied after hidden blocks, bool
     :param out_layernorm: if layer normalization is applied after output layer, bool
     :return:
     """
@@ -57,6 +59,38 @@ def create_mlp(layer_dims, activation_fn=nn.ReLU(), out_activation=False, dropou
     for layer_idx in range(n_layers - 1):
         # weight and bias
         layers.append(torch.nn.Linear(layer_dims[layer_idx], layer_dims[layer_idx + 1]))
+        # layer notmalization
+        if layer_normalization and (layer_idx != n_layers - 2 or out_layernorm):
+            layers.append(nn.LayerNorm(layer_dims[layer_idx + 1]))
+        # activation function
+        if layer_idx != n_layers - 2 or out_activation:
+            layers.append(activation_fn)
+        # dropout
+        if dropout > 0 and (layer_idx != n_layers - 2 or out_dropout):
+            layers.append(torch.nn.Dropout(dropout))
+
+    return torch.nn.Sequential(*layers)
+
+def create_local_mlps(n_units, layer_dims, activation_fn=nn.ReLU(), out_activation=False, dropout=.0, out_dropout=False, layer_normalization=False, out_layernorm=False):
+    """
+    create a Multilayer Perceptron
+    :param layer_dims: dimensions of the MLP blocks, list of int
+    :param activation_fn: activation function after hidden blocks, function
+    :param out_activation: activation function after output layer, function
+    :param dropout: dropout applied after hidden blocks, float
+    :param out_dropout: dropout applied after output layer, float
+    :param layer_normalization: if layer normalization is applied after hidden blocks, bool
+    :param out_layernorm: if layer normalization is applied after output layer, bool
+    :return:
+    """
+    n_layers = len(layer_dims)
+    layers = []
+    for layer_idx in range(n_layers - 1):
+        # weight and bias
+        if layer_idx == 0:
+            layers.append(torch.nn.Linear(layer_dims[layer_idx], layer_dims[layer_idx + 1] * n_units))
+        else:
+            layers.append(LocallyConnected(layer_dims[layer_idx], layer_dims[layer_idx + 1], n_units))
         # layer notmalization
         if layer_normalization and (layer_idx != n_layers - 2 or out_layernorm):
             layers.append(nn.LayerNorm(layer_dims[layer_idx + 1]))
@@ -184,7 +218,7 @@ def get_well_conditioned_hermitian(dim, allow_singular=True, rng=None, max_cond_
         Q += rng.standard_normal((dim, dim)) * noise_var
         A = Q @ Q.T
         cond_num = np.linalg.cond(A)
-        print(cond_num)
+        print('condition number:', cond_num)
         noise_var /= 2
         if (allow_singular or not np.isclose(np.linalg.det(A), 0)) and cond_num < max_cond_number:
             return A
