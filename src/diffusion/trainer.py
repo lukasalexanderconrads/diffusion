@@ -4,6 +4,7 @@ import shutil
 from datetime import datetime
 import csv
 
+import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from tqdm import tqdm
@@ -204,7 +205,11 @@ class EntropyTrainer(Trainer):
 
         # plot loss weight if exists
         if hasattr(self.model, 'loss_weight'):
-            plt.plot(t_eval, self.model.loss_weight.cpu(), label='loss weight')
+            plt.plot(t_eval, torch.log(self.model.loss_weight.cpu()), label='log loss weight')
+
+        # plot time centers
+        t_centers = self.model.t_centers.data.cpu().squeeze().numpy()
+        plt.scatter(t_centers, np.zeros_like(t_centers), c='r', label='gaussian centers')
 
 
         plt.legend()
