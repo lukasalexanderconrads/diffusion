@@ -91,6 +91,11 @@ def plot_epr(trainer_list, label_list):
 
     plot_exact_epr(data_loader, t_eval)
 
+    trainer.model._set_loss_weight(t)
+    if hasattr(trainer.model, 'loss_weight'):
+        plt.plot(t_eval, trainer.model.loss_weight.cpu(), label='loss weight')
+
+
     plt.legend()
     plt.xlabel('time')
     plt.ylabel('entropy production rate')
@@ -142,7 +147,7 @@ def modified_var(j, t):
 
 if __name__ == '__main__':
 
-    result_dir = '/rdata/results/entropy/ou_process'
+    result_dir = '/rdata/results/entropy/ppca'
     # model_name = 'mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_100000/_model_layer_dims_(512, 512)/0623-205300'
     #
     # trainer = load_trainer(result_dir, model_name, device='cuda:0')
@@ -150,15 +155,23 @@ if __name__ == '__main__':
     # # plot_mi_epr(trainer, 'train')
     # plot_mi_epr(trainer, 'test')
 
-    model_name_list = ['mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_1000/_model_layer_dims_(8, 8)/0627-085213',
-                       'mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_10000/_model_layer_dims_(8, 8)/0628-112853',
-                       'mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_100000/_model_layer_dims_(8, 8)/0623-161447']
-    label_list = ['1k paths',
-                  '10k paths',
-                  '100k paths']
+    # model_name_list = ['mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_1000/_model_layer_dims_(8, 8)/0627-085213',
+    #                    #'mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_1000/_model_layer_dims_(8, 8)/0703-140359',
+    #                    'mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_1000/_model_layer_dims_(8, 8)_model_time_step_separation_(0.1,)/0707-145148',
+    #                    # 'mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_1000/_model_layer_dims_(4, 4)_model_time_step_separation_(0.05,)/0706-125711',
+    #                    #'mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_1000/_model_layer_dims_(2, 2)_model_time_step_separation_(0.05, 0.1)/0707-135641',
+    #                    ]
+    # label_list = ['regular', #'exp weight',
+    #               'tss .1',
+    #               # 'tss .05',
+    #               #'tss .05, .1',
+    #               ]
+
+    model_name_list = ['ppca/_optimizer_lr_0.0005/_model_layer_dims_(4, 4)_model_time_step_separation_(0.007, 0.04)/0707-191131']
+    label_list = ['tss .007, .04']
 
     trainer_list = get_trainer_list(result_dir, model_name_list)
     plot_epr(trainer_list, label_list)
-    plt.xlim(-.1, 4)
+    plt.xlim(-.1, 10)
     plt.title('$dt = .001$')
     plt.show()
