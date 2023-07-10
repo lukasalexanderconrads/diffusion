@@ -174,11 +174,12 @@ class TrajectoryDatasetLazy(Dataset):
         self.path = kwargs.get('path', './data')
         self.train_fraction = kwargs.get('train_fraction', .8)
         self.max_time_step = kwargs.get('max_time_step', None)
+        self.min_time_step = kwargs.get('min_time_step', None)
 
 
         self._prep_data()
 
-        self.data_shape = self.data.shape[-1]
+        self.data_shape = (self.data.shape[-2], self.data.shape[-1])
         self.max_time = float(np.max(self.time_points))
 
     def _prep_data(self):
@@ -195,6 +196,9 @@ class TrajectoryDatasetLazy(Dataset):
         if self.max_time_step is not None:
             self.data = self.data[:, :self.max_time_step]
             self.time_points = self.time_points[:, :self.max_time_step]
+        if self.min_time_step is not None:
+            self.data = self.data[:, self.min_time_step:]
+            self.time_points = self.time_points[:, self.min_time_step:]
         if os.path.exists(path_to_exact_epr):
             self.exact_epr = torch.from_numpy(np.load(path_to_exact_epr))[:-1]
             if self.max_time_step is not None:
@@ -210,6 +214,7 @@ class TrajectoryDatasetLazy(Dataset):
             self.indices = shuffled_indices[n_train_samples:(n_train_samples + n_valid_samples)]
         if self.set == 'test':
             self.indices = shuffled_indices[(n_train_samples + n_valid_samples):]
+        print(self.data.shape)
     def __getitem__(self, item):
         data = torch.tensor(self.data[self.indices[item]].copy()).float()
         time_points = torch.tensor(self.time_points[self.indices[item]].copy()).float()
@@ -233,6 +238,7 @@ class TrajectoryDatasetAE(Dataset):
         super(TrajectoryDatasetAE, self).__init__()
         self.n_time_steps = kwargs.get('n_time_steps', None)
         self.max_time_step = kwargs.get('max_time_step', None)
+        self.min_time_step = kwargs.get('min_time_step', None)
         self.set = set
         self.seed = kwargs.get('seed', 1)
         self.path = kwargs.get('path', './data')
@@ -242,7 +248,7 @@ class TrajectoryDatasetAE(Dataset):
 
         self.time_points = time_points.float()  # [batch_size, traject_length, 2]
 
-        self.data_shape = self.data.shape[-1]
+        self.data_shape = (self.data.shape[-2], self.data.shape[-1])
         self.max_time = float(torch.max(time_points))
 
     def _get_data(self):
@@ -255,7 +261,7 @@ class TrajectoryDatasetAE(Dataset):
 
         if os.path.exists(path_to_data):
             data_shape = tuple(np.load(path_to_data_shape))
-            self.data = np.memmap(path_to_data, dtype='float32', mode='r', shape=data_shape)  # [n_trajects, traject_length, data_dim]
+            self.data = np.memmap(path_to_data, dtype='float32', mode='r', shape=data_shape)[:, :self.max_time_step]  # [n_trajects, traject_length, data_dim]
         lr = torch.load(path_to_lr, map_location="cpu")  # [total_series_length]
         lr[0] = 0
         seq_len = data_shape[1]
@@ -265,9 +271,9 @@ class TrajectoryDatasetAE(Dataset):
             self.loss = torch.load(path_to_loss, map_location="cpu") [:seq_len-1] # [total_series_length]
         if os.path.exists(path_to_bounds):
             self.bounds = torch.load(path_to_bounds, map_location="cpu")  # [total_series_length]
-
         if self.max_time_step is not None:
             self.data = self.data[:, :self.max_time_step]
+            data_shape = (data_shape[0], self.max_time_step, data_shape[2])
             lr = lr[:self.max_time_step]
             if hasattr(self, 'mi'):
                 self.mi = self.mi[:self.max_time_step-1]
