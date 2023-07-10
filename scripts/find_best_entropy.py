@@ -27,6 +27,7 @@ def main(config_path: Path):
     data_name = config['loader']['args']['path'].rsplit('/', 1)[-1]
     metrics_path = os.path.join(config['metrics_path'], data_name)
 
+    iteration = 0
     done = False
     while not done:
         torch.manual_seed(config['seed'])
@@ -49,22 +50,27 @@ def main(config_path: Path):
                                                 f'model_layer_dims_{tuple(new_layer_dims)}')
         config['model']['args']['layer_dims'] = new_layer_dims
 
-        save_metrics(trainer, metrics_path, train_metrics, valid_metrics, old_layer_dims)
+        save_metrics(trainer, metrics_path, train_metrics, valid_metrics, old_layer_dims, iteration)
 
 
         # avoid memory fragmentation
         del trainer
         gc.collect()
+        iteration += 1
 
 
-def save_metrics(trainer, metrics_path, train_metrics, valid_metrics, layer_dims):
+def save_metrics(trainer, metrics_path, train_metrics, valid_metrics, layer_dims, iteration):
 
     file_path = os.path.join(metrics_path, 'metrics.csv')
-    if not os.path.exists(file_path):
-        os.makedirs(metrics_path)
-        with open(file_path, 'w') as file:
+    if iteration == 0:
+        if not os.path.exists(file_path):
+            os.makedirs(metrics_path)
+
+        with open(file_path, 'a') as file:
             writer = csv.writer(file)
+            writer.writerow([trainer.name])
             writer.writerow(['layer_dims', 'train loss', 'valid loss', 'exact_ep', 'train ep var', 'valid ep var', 'valid ep simple'])
+
 
     layer_dims = str(layer_dims).replace(',', ' ')
 
