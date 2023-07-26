@@ -155,6 +155,11 @@ class MultivariateOUProcess:
 
         return epr
 
+    def get_sys_ep(self):
+        start = .5 * math.log(np.linalg.det(self.var[0]))
+        end = .5 * math.log(np.linalg.det(self.var[-1]))
+        return start - end
+
     def get_cum_ep(self):
         epr = self.get_exact_epr()
         cumulative_epr = [simpson(epr[:t], dx=self.dt) for t in range(1, len(epr))]
@@ -179,6 +184,8 @@ class MultivariateOUProcess:
         time_points = np.expand_dims(self.time, 0).repeat(ensemble_size, axis=0)
         print('computing exact epr...')
         exact_epr = self.get_exact_epr()
+        sys_ep_change = self.get_sys_ep()
+        print('change in system entropy:', sys_ep_change)
 
         np.save(os.path.join(save_dir, 'time_points.npy'), time_points)
         np.save(os.path.join(save_dir, 'exact_epr.npy'), exact_epr)

@@ -100,6 +100,30 @@ def plot_epr(trainer_list, label_list):
     plt.xlabel('time')
     plt.ylabel('entropy production rate')
 
+def get_epr_error(trainer_list):
+    for trainer in trainer_list:
+        j, t = get_j_t(trainer)
+
+        trainer.model.estimator_type = 'var'
+        epr_var = trainer.model.get_entropy_production_rate(j, t)
+
+        trainer.model.estimator_type = 'simple'
+        epr_simple = trainer.model.get_entropy_production_rate(j, t)
+
+        epr_exact = trainer.data_loader.train.dataset.exact_epr
+
+        epr_var_error = torch.mean(torch.abs(epr_var - epr_exact))
+        epr_simple_error = torch.mean(torch.abs(epr_simple - epr_exact))
+
+        epr_var_error_relative = epr_var_error / epr_exact
+        epr_simple_error_relative = epr_simple_error / epr_exact
+
+        print('#####################')
+        print('model:', trainer.name)
+        print('avg epr error (simple):', epr_simple_error)
+        print('avg epr error (var):', epr_var_error)
+        print('avg relative epr error (simple):', epr_simple_error_relative)
+        print('avg relative epr error (var):', epr_var_error_relative)
 
 def get_trainer_list(result_dir, model_name_list):
     trainer_list = []

@@ -157,32 +157,6 @@ class RBF(nn.Module):
         return out
 
 
-# https://stackoverflow.com/questions/18215163/cumulative-simpson-integration-with-scipy
-def cumsimp(func,a,b,num):
-    #Integrate func from a to b using num intervals.
-
-    num*=2
-    a=float(a)
-    b=float(b)
-    h=(b-a)/num
-
-    output=4*func(a+h*np.arange(1,num,2))
-    tmp=func(a+h*np.arange(2,num-1,2))
-    output[1:]+=tmp
-    output[:-1]+=tmp
-    output[0]+=func(a)
-    output[-1]+=func(b)
-    return np.cumsum(output*h/3)
-
-def integ1(x):
-    return x
-
-def integ2(x):
-    return x**2
-
-def integ0(x):
-    return np.ones(np.asarray(x).shape)*5
-
 def get_random_hermitian(dim, allow_singular=True, unitary=False, rng=None):
     """
     :param dim: size of the matrix

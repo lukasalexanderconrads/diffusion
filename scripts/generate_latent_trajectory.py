@@ -39,6 +39,8 @@ def main(config_path: Path):
         n_trajectories_per_model = config['args'].get('n_trajectories_per_model', None)
         if n_trajectories_per_model is None:
             n_trajectories_per_model = len(data_loader.train.dataset)
+        assert n_trajectories_per_model % batch_size == 0,\
+            f'number of data per model {n_trajectories_per_model} not divisible by batch size {batch_size}'
         cov_factor = config['args'].get('cov_factor', 1)
 
         # create save_dir if not exists
@@ -76,7 +78,7 @@ def main(config_path: Path):
 
             # FOR EACH TIME POINT
             latent_time_step_batch = []
-            for step, checkpoint_name in tqdm(enumerate(checkpoint_names), total=len(checkpoint_names), leave=False):
+            for step, checkpoint_name in tqdm(enumerate(checkpoint_names), total=n_time_points, leave=False):
                 if step >= max_n_time_points:
                     break
 
@@ -101,11 +103,9 @@ def main(config_path: Path):
                     # if (batch_number + 1) * latent_batch.size(0) * n_trajectories_per_data >= n_trajectories_per_model:
                     #     print()
                     #     break
-
                 latent_time_step_batch.append(torch.cat(latent, dim=0))
 
                 if len(latent_time_step_batch) == time_point_batch_size:
-                    print(n_trajectories_per_model, n_trajectories_per_data)
                     batch_start_idx = model_number * n_trajectories_per_model * n_trajectories_per_data
                     batch_end_idx = (model_number + 1) * n_trajectories_per_model * n_trajectories_per_data
                     time_step_start_idx = step - time_point_batch_size + 1
