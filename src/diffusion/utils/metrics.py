@@ -89,38 +89,57 @@ class MetricAccumulator:
         """
         self.concat_keys += keys
 
-def mutual_information_data_rep(cov_matrix_marginal_distr: torch.Tensor,
-                                cov_matrix_cond_distr: torch.Tensor,
-                                lin_map: torch.Tensor):
-    """
-    Computes mutual information between:
-    p(x) = N(m_x, cov_matrix_marginal_distr), and
-    q(z|x) = N(lin_map . x + b, cov_matrix_cond_distr).
-    The mutual information reads:
-    MI = 0.5 * log(det(cov_matrix_marginal_distr)) +
-         0.5 * log(det(lin_map * cov_matrix_marginal_distr * lin_map^T)) -
-         0.5 * log(det(cov_full))
-    where cov_full is the covariance matrix of the (Gaussian) random variable y = (x, z)
-    """
+# def mutual_information_data_rep(cov_matrix_marginal_distr: torch.Tensor,
+#                                 cov_matrix_cond_distr: torch.Tensor,
+#                                 lin_map: torch.Tensor):
+#     """
+#     Computes mutual information between:
+#     p(x) = N(m_x, cov_matrix_marginal_distr), and
+#     q(z|x) = N(lin_map . x + b, cov_matrix_cond_distr).
+#     The mutual information reads:
+#     MI = 0.5 * log(det(cov_matrix_marginal_distr)) +
+#          0.5 * log(det(lin_map * cov_matrix_marginal_distr * lin_map^T)) -
+#          0.5 * log(det(cov_full))
+#     where cov_full is the covariance matrix of the (Gaussian) random variable y = (x, z)
+#     """
+#
+#     m1 = torch.matmul(cov_matrix_marginal_distr, torch.t(lin_map))
+#     m2 = torch.matmul(lin_map, cov_matrix_marginal_distr)
+#     m3 = cov_matrix_cond_distr + torch.matmul(lin_map, m1)
+#     m1 = torch.cat([cov_matrix_marginal_distr, m1], dim=-1)
+#     m2 = torch.cat([m2, m3], dim=-1)
+#     cov_full = torch.cat([m1, m2], dim=0)
+#
+#     epsilon = torch.tensor(1e-10, device=m1.device)
+#     zeros = torch.tensor(0.0, device=m1.device)
+#     det_m3 = torch.det(m3)
+#     log_det_m3 = torch.log(torch.where(det_m3 > zeros, det_m3, epsilon))
+#     det_cov_mat_marginal_distr = torch.det(cov_matrix_marginal_distr)
+#     log_det_cov_mat_marginal_distr = torch.log(torch.where(det_cov_mat_marginal_distr > zeros,
+#                                                            det_cov_mat_marginal_distr,
+#                                                            epsilon))
+#     det_cov_full = torch.det(cov_full)
+#     log_det_cov_full = torch.log(torch.where(det_cov_full > zeros, det_cov_full, epsilon))
+#     mi = 0.5 * log_det_m3 + 0.5 * log_det_cov_mat_marginal_distr - 0.5 * log_det_cov_full
+#     # mi = 0.5 * torch.log(log_det_m3) + 0.5 * torch.log(det_cov_mat_marginal_distr) - 0.5 * torch.log(log_det_cov_full)
+#     # mi = 0.5 * torch.log(det_m3 * det_cov_mat_marginal_distr / det_cov_full)
+#     return mi
 
-    m1 = torch.matmul(cov_matrix_marginal_distr, torch.t(lin_map))
-    m2 = torch.matmul(lin_map, cov_matrix_marginal_distr)
-    m3 = cov_matrix_cond_distr + torch.matmul(lin_map, m1)
-    m1 = torch.cat([cov_matrix_marginal_distr, m1], dim=-1)
-    m2 = torch.cat([m2, m3], dim=-1)
-    cov_full = torch.cat([m1, m2], dim=0)
+def mutual_information_data_rep(cov_z, W, cov_x_given_z):
+    """
+    mutual information between x and z, where p(z) = N(mu, cov_z) and p(x|z) = N(Wz+rho, cov_x_given_z)
+    """
+    cov_x = W @ cov_z @ W.T + cov_x_given_z
 
-    epsilon = torch.tensor(1e-10, device=m1.device)
-    zeros = torch.tensor(0.0, device=m1.device)
-    det_m3 = torch.det(m3)
-    log_det_m3 = torch.log(torch.where(det_m3 > zeros, det_m3, epsilon))
-    det_cov_mat_marginal_distr = torch.det(cov_matrix_marginal_distr)
-    log_det_cov_mat_marginal_distr = torch.log(torch.where(det_cov_mat_marginal_distr > zeros,
-                                                           det_cov_mat_marginal_distr,
-                                                           epsilon))
-    det_cov_full = torch.det(cov_full)
-    log_det_cov_full = torch.log(torch.where(det_cov_full > zeros, det_cov_full, epsilon))
-    mi = 0.5 * log_det_m3 + 0.5 * log_det_cov_mat_marginal_distr - 0.5 * log_det_cov_full
-    # mi = 0.5 * torch.log(log_det_m3) + 0.5 * torch.log(det_cov_mat_marginal_distr) - 0.5 * torch.log(log_det_cov_full)
-    # mi = 0.5 * torch.log(det_m3 * det_cov_mat_marginal_distr / det_cov_full)
-    return mi
+    K_xz = W @ cov_z
+
+    cov_joint = torch.cat((torch.cat((cov_x, K_xz), dim=1),
+                           torch.cat((K_xz.T, cov_z), dim=1)), dim=0)
+
+    return mutual_information(cov_x, cov_z, cov_joint)
+
+
+
+
+def mutual_information(cov_x, cov_z, cov_joint):
+    return .5 * (torch.log(torch.det(cov_x)) + torch.log(torch.det(cov_z)) - torch.log(torch.det(cov_joint)))

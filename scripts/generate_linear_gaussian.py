@@ -9,7 +9,7 @@ import torch
 
 from diffusion.models.data_models import LatentLinearGaussian
 from diffusion.utils.helpers import read_yaml
-from diffusion.utils.metrics import mutual_information_data_rep
+from diffusion.utils.metrics import *
 
 @click.command()
 @click.option('-c', '--config', 'cfg_path', required=True,
@@ -87,12 +87,14 @@ def main(cfg_path):
 
 
     cov_matrix_posterior, proj_posterior = compute_max_likelihood_pca(out_dir, pca_dimension,
-                                                                      lin_gaussian.data_cov_matrix)
+                                                                      lin_gaussian.data_cov_matrix,
+                                                                      lin_gaussian.mean_x)
 
     # mutual information calculation:
     mi_ml = mutual_information_data_rep(torch.from_numpy(lin_gaussian.data_cov_matrix),
                                         torch.from_numpy(cov_matrix_posterior),
                                         torch.from_numpy(proj_posterior))
+
     if lin_gaussian.use_hidden_variable_model:
         cov_z = np.zeros((lin_gaussian.latent_dim, lin_gaussian.latent_dim))
         np.fill_diagonal(cov_z, lin_gaussian.std_dev_z[0] * lin_gaussian.std_dev_z[0])
@@ -107,7 +109,7 @@ def main(cfg_path):
     print('ground-truth MI(X, Z) =', mi_gt)
 
 
-def compute_max_likelihood_pca(path, pca_dimension, ground_truth_data_cov_matrix):
+def compute_max_likelihood_pca(path, pca_dimension, ground_truth_data_cov_matrix, ground_truth_data_mean):
     data_ = np.genfromtxt(os.path.join(path, 'train.csv'), delimiter=',')
     data_dim = data_.shape[-1]
     data_cov_matrix = np.cov(data_.T)
@@ -138,7 +140,8 @@ def compute_max_likelihood_pca(path, pca_dimension, ground_truth_data_cov_matrix
                       'covariance_matrix_ml': cov_ml.tolist(),
                       'encoder_proj_ml': enc_projection.tolist(),
                       'encoder_covariance_ml': enc_cov.tolist(),
-                      'ground_truth_data_cov_matrix': ground_truth_data_cov_matrix.tolist()}
+                      'ground_truth_data_cov_matrix': ground_truth_data_cov_matrix.tolist(),
+                      'ground_truth_data_mean': ground_truth_data_mean.tolist()}
     path_ = os.path.join(path, 'max_likelihood_sol.json')
     remove_file_if_exists(path_)
     with open(path_, 'w', encoding='utf-8') as f:

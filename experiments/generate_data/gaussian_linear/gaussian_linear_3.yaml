@@ -1,13 +1,13 @@
-save_dir: /raid/data/gaussian_linear
+save_dir: /raid/data/gaussian_linear_3
 use_hidden_variable_model: true
 use_random_lin_map: false
-train_size: 20000
+train_size: 5000
 test_size: 1000
 validation_size: 1000
 seed: 42
 # Gaussian parameters
 mean_z: [5.2, -0.2, 3]
-std_dev_z: [.1, .3, .1]
+std_dev_z: [.1, .1, .2]
 std_dev_x: 1
 pca_dimension: 3
 data_dim: 6
@@ -15,6 +15,6 @@ data_dim: 6
 rotation_angle_y: 0.7853981633974483
 rotation_angle_x: 0.5235987755982988
 shear_mapping_1:  3.5
-shear_mapping_2:  5
+shear_mapping_2:  1.5
 
 
