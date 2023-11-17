@@ -3,7 +3,7 @@ device: cuda:0
 num_runs: 1
 seed: 1
 
-stopping_difference: 10
+stopping_difference: 1000
 layer_multiplier: !!python/tuple [2, 2]
 metrics_path: /rdata/results/entropy/ou_process/metrics
 
@@ -15,8 +15,8 @@ model:
     estimator_type: simple
     layer_dims: [!!python/tuple [2, 2]]
     kernel: gaussian
-    loss_weight_exponential_parameters: !!python/tuple [ 10, 2.3 ]
-
+#    loss_weight_exponential_parameters: [!!python/tuple [100, 8]]
+#    time_step_separation: [!!python/tuple [.1]]
 
 loader:
   module: diffusion.data.dataloaders
@@ -24,7 +24,7 @@ loader:
   args:
     batch_size: 64
     train_fraction: .8
-    path: /raid/data/neep/mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_1000
+    path: /raid/data/neep/mv_ou_process/_dim_3_T_10_num_steps_10000_num_samples_1000_max_cond_number_10
     standardize: false
 #    max_time_step: [1000]
 
@@ -42,8 +42,8 @@ trainer:
   args:
     n_epochs: 500
     bm_metric: loss
-    early_stop_criterion: 30 # if no improvement over this many epochs, stop training
-    log_plots_every_n_epochs: 50
+    early_stop_criterion: 50 # if no improvement over this many epochs, stop training
+    log_plots_every_n_epochs: 100
     log_dir: /rdata/results
     save_dir: /rdata/results
 
@@ -51,5 +51,5 @@ trainer:
       module: diffusion.schedulers
       name: HalvingScheduler
       args:
-        start_value: .004
-        halve_after_epochs: !!python/tuple [10, 15, 20]
+        start_value: .002
+        halve_after_epochs: !!python/tuple [10, 20, 50]
