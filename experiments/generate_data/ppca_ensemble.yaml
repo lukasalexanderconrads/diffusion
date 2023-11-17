@@ -1,0 +1,15 @@
+name: mean
+device: cuda:0
+num_runs: 1
+seed: 1
+
+args:
+  model_dir: /raid/results/ppca/ensemble/_optimizer_lr_0.005
+  sample_once: false
+  use_latent_mean: true
+  batch_size: 1000
+  time_point_batch_size: 5000
+  n_trajectories_per_data: 1
+  n_trajectories_per_model: 1000
+  max_n_time_points: 25000
+  path: /raid/data/neep

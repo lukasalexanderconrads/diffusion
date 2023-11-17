@@ -41,10 +41,11 @@ def main(config_path: Path):
             n_trajectories_per_model = len(data_loader.train.dataset)
         assert n_trajectories_per_model % batch_size == 0,\
             f'number of data per model {n_trajectories_per_model} not divisible by batch size {batch_size}'
-        cov_factor = config['args'].get('cov_factor', 1)
+        sample_once = config['args'].get('sample_once', False)
+        use_latent_mean = config['args'].get('use_latent_mean', False)
 
         # create save_dir if not exists
-        model_name = os.path.join(*(model_dir.split('/')[3:]))
+        model_name = os.path.join(*(model_dir.split('/')[3:]), config['name'])
         Path(os.path.join(save_dir, model_name)).mkdir(parents=True, exist_ok=True)
 
         timestamp_list = [_ for _ in os.scandir(model_dir)]
@@ -94,15 +95,16 @@ def main(config_path: Path):
 
                     data = data.repeat_interleave(n_trajectories_per_data, dim=0)
 
-                    # save latent code
-                    latent_batch, mi, loss_batch = model.get_latent_mi_loss(data, cov_factor=cov_factor)
+                    latent_batch, mi, loss_batch = model.get_latent_mi_loss(data, batch_number * model_number if sample_once else None,
+                                                                            return_mean=use_latent_mean)
+
                     latent.append(latent_batch.detach())
                     # compute loss
                     loss.append(loss_batch)
 
-                    # if (batch_number + 1) * latent_batch.size(0) * n_trajectories_per_data >= n_trajectories_per_model:
-                    #     print()
-                    #     break
+                    if latent_batch.size(0) == n_trajectories_per_model:
+                        break
+
                 latent_time_step_batch.append(torch.cat(latent, dim=0))
 
                 if len(latent_time_step_batch) == time_point_batch_size:
