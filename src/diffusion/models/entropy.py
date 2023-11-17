@@ -62,18 +62,22 @@ class NEEP(BaseModel):
             self.exp_params = nn.Parameter(torch.randn((4, data_dim), device=self.device))
 
         # mask for time step separation
-        self.t_mask = torch.ones((self.n_time_steps, self.out_dim), device=self.device)
+        if time_step_separation:
+            self.t_mask = torch.ones((self.n_time_steps, self.out_dim), device=self.device)
+        else:
+            self.t_mask = 1
         time_points = torch.arange(self.n_time_steps, device=self.device) / self.n_time_steps * self.max_time
         time_points = time_points.unsqueeze(1).repeat(1, self.out_dim_per_unit)
-        for i in range(len(self.time_step_separation_points) - 1):
-            t_min = self.time_step_separation_points[i]
-            t_max = self.time_step_separation_points[i + 1]
-            submask = self.t_mask[:, self.out_dim_per_unit * i : self.out_dim_per_unit * (i + 1)]
-            submask[time_points < t_min] = 0
-            submask[time_points >= t_max] = 0
-            self.t_mask[:, self.out_dim_per_unit * i : self.out_dim_per_unit * (i + 1)] = submask
+        if time_step_separation:
+            for i in range(len(self.time_step_separation_points) - 1):
+                t_min = self.time_step_separation_points[i]
+                t_max = self.time_step_separation_points[i + 1]
+                submask = self.t_mask[:, self.out_dim_per_unit * i : self.out_dim_per_unit * (i + 1)]
+                submask[time_points < t_min] = 0
+                submask[time_points >= t_max] = 0
+                self.t_mask[:, self.out_dim_per_unit * i : self.out_dim_per_unit * (i + 1)] = submask
 
-        self.t_mask = self.t_mask.unsqueeze(0).unsqueeze(-1)
+            self.t_mask = self.t_mask.unsqueeze(0).unsqueeze(-1)
 
 
 
