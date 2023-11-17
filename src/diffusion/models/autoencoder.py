@@ -1,8 +1,9 @@
 import torch
 from torch.distributions.multivariate_normal import MultivariateNormal
+import numpy as np
 
 from diffusion.models.base import BaseModel
-from diffusion.utils.metrics import mutual_information_data_rep
+from diffusion.utils.metrics import *
 from diffusion.utils.helpers import create_mlp
 
 
@@ -17,6 +18,7 @@ class BaseAutoencoder(BaseModel):
 
         # Ground-truth covariance of Gaussian model (to compute the MI)
         self.ground_truth_cov = torch.tensor(kwargs['max_likelihood_sol']['ground_truth_data_cov_matrix'])
+        self.ground_truth_mean = torch.tensor(kwargs['max_likelihood_sol']['ground_truth_data_mean'])
 
         # Maximum likelihood solution (for comparison)
         self.mean_max_lik = torch.tensor(kwargs['max_likelihood_sol']['mean_ml'])
@@ -25,9 +27,11 @@ class BaseAutoencoder(BaseModel):
         # Mutual information with max. likelihood solution (for comparison)
         posterior_ml_cov = torch.tensor(kwargs['max_likelihood_sol']['encoder_covariance_ml'])
         posterior_ml_proj = torch.tensor(kwargs['max_likelihood_sol']['encoder_proj_ml'])
-        self.mi_max_likelihood = mutual_information_data_rep(self.ground_truth_cov, posterior_ml_cov, posterior_ml_proj)
+        self.mi_max_likelihood = mutual_information_data_rep(self.ground_truth_cov, posterior_ml_proj, posterior_ml_cov)
 
         self._init_components(**kwargs)
+
+        self.clip_grad_norm = kwargs.get('clip_grad_norm', None)
     def _init_components(self, **kwargs):
         pass
 
@@ -38,24 +42,34 @@ class PPCA(BaseAutoencoder):
     def __init__(self, data_dim, **kwargs):
         super(PPCA, self).__init__(data_dim, **kwargs)
 
+        self.noise_variance = kwargs.get('noise_variance', None)
 
     def _init_components(self, **kwargs):
+        self.large_variance_init = kwargs.get('large_variance_init', False)
+
         # Linear map from latent to data space
         self.linear_map = torch.nn.Parameter(torch.rand(self.data_dim, self.latent_dim, device=self.device),
                                              requires_grad=True)
-        torch.nn.init.normal_(self.linear_map, mean=0.0, std=0.01)
-
         # Decoder mean
         self.mean = torch.nn.Parameter(torch.zeros(self.data_dim, device=self.device), requires_grad=True)
-        torch.nn.init.normal_(self.mean, mean=0.0, std=0.01)
 
         # Decoder std deviation
-        self.sigma_square = torch.nn.Parameter(torch.full((1,), 0.1, device=self.device), requires_grad=True)
+        self.sigma_square = torch.nn.Parameter(torch.full((1,), 10.0, device=self.device), requires_grad=True)
+
+        #self.sigma = torch.nn.Parameter(torch.full((1,), 0.1, device=self.device), requires_grad=True)
+
+        if self.large_variance_init:
+            torch.nn.init.normal_(self.linear_map, mean=0.0, std=5)
+            torch.nn.init.normal_(self.mean, mean=0.0, std=5)
+            torch.nn.init.normal_(self.sigma_square, mean=10, std=1)
+        else:
+            torch.nn.init.normal_(self.linear_map, mean=0.0, std=.01)
+            torch.nn.init.normal_(self.mean, mean=0.0, std=.01)
 
         self.sample = False
 
 
-    def forward(self, input: torch.Tensor, sample=False, cov_factor=1):
+    def forward(self, input: torch.Tensor, sample=False, seed=None, return_mean=False):
         """
         input: [B, D]
         returns
@@ -63,20 +77,25 @@ class PPCA(BaseAutoencoder):
         (ii) encoder projection  (Eq. 12.42 Bishop)
         (iii) samples from the exact posterior (optional)
         """
+        #self.sigma_square = self.sigma ** 2
+
         m1 = torch.matmul(torch.t(self.linear_map), self.linear_map) \
              + torch.abs(self.sigma_square) * torch.eye(self.latent_dim, device=self.device)  # [latent_dim, latent_dim]
         m1 = torch.inverse(m1)
 
         enc_projection = torch.matmul(m1, torch.t(self.linear_map))  # encoder projection [data_dim, latent_dim]
         enc_cov = torch.abs(self.sigma_square) * m1
-        enc_cov *= cov_factor
 
         if sample:
             # sample from posterior distribution
             mean_z = torch.matmul(input - self.mean.unsqueeze(0), torch.t(enc_projection))
             pz = MultivariateNormal(loc=mean_z,
-                                    covariance_matrix=enc_cov)
+                                    covariance_matrix=enc_cov, validate_args=False)
+            if seed is not None:
+                torch.manual_seed(seed)
             z = pz.sample()
+        elif return_mean:
+            z = torch.matmul(input - self.mean.unsqueeze(0), torch.t(enc_projection))
         else:
             z = None
 
@@ -89,6 +108,7 @@ class PPCA(BaseAutoencoder):
                                   covariance_matrix=(torch.matmul(self.linear_map, self.linear_map.T)
                                                      + torch.abs(self.sigma_square) * torch.eye(data_dim, device=self.device)))
         loss = -torch.mean(ppca.log_prob(x_target))
+
         # # Exact maximum likelihood distribution (for comparison)
         # max_lik_distr = MultivariateNormal(loc=torch.tensor(self.mean_max_lik.to(self.device)),
         #                                    covariance_matrix=torch.tensor(self.cov_max_lik.to(self.device)))
@@ -105,8 +125,7 @@ class PPCA(BaseAutoencoder):
         """
         if self.ground_truth_cov is not None:
             mi = mutual_information_data_rep(self.ground_truth_cov.to(self.device),
-                                             cov_z,
-                                             enc_proj)
+                                         enc_proj, cov_z)
         else:
             mi = torch.tensor(0.0)
 
@@ -127,8 +146,16 @@ class PPCA(BaseAutoencoder):
         # backprop + update
         loss_stats = self.loss(data)
         loss_stats['loss'].backward()
-        torch.nn.utils.clip_grad_norm_(self.parameters(), 1)
+
+        if self.clip_grad_norm is not None:
+            torch.nn.utils.clip_grad_norm_(self.parameters(), self.clip_grad_norm)
         optimizer.step()
+
+        if self.noise_variance is not None:
+            with torch.no_grad():
+                self.linear_map += optimizer.param_groups[0]['lr'] * self.noise_variance * torch.randn(self.linear_map.size(), device=self.device)
+                self.mean += optimizer.param_groups[0]['lr'] * self.noise_variance * torch.randn(self.mean.size(), device=self.device)
+                self.sigma_square += optimizer.param_groups[0]['lr'] * self.noise_variance * torch.randn(self.sigma_square.size(), device=self.device)
 
         metric_stats = self.metric(cov_z, enc_proj)
 
@@ -145,11 +172,18 @@ class PPCA(BaseAutoencoder):
 
         return loss_stats | metric_stats
 
-    def get_latent_mi_loss(self, input, cov_factor=1):
-        enc_cov, enc_projection, latent = self.forward(input, sample=True, cov_factor=cov_factor)
-        mi = mutual_information_data_rep(self.ground_truth_cov.to(self.device), enc_cov, enc_projection)
+    def get_latent_mi_loss(self, input, batch_number=None, return_mean=False):
+        enc_cov, enc_projection, latent = self.forward(input, sample=not return_mean, seed=batch_number, return_mean=return_mean)
+        mi = mutual_information_data_rep(self.ground_truth_cov.to(self.device), enc_projection, enc_cov)
         loss = self.loss(input)['loss']
         return latent, mi, loss
+
+    def get_latent_params_mi_loss(self, input):
+        enc_cov, enc_projection, latent = self.forward(input, sample=True)
+        mean_z = torch.matmul(input - self.mean.unsqueeze(0), torch.t(enc_projection))
+        mi = mutual_information_data_rep(self.ground_truth_cov.to(self.device), enc_cov, enc_projection)
+        loss = self.loss(input)['loss']
+        return mean_z, enc_cov, mi, loss
 
     def get_mi(self, enc_cov, enc_projection):
         mi = mutual_information_data_rep(self.ground_truth_cov.to(self.device), enc_cov, enc_projection)
