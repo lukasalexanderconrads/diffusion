@@ -1,4 +1,4 @@
-name: ppca/
+name: ppca/TEST/
 num_runs: 1
 device: cuda:1
 seed: 1
@@ -9,12 +9,14 @@ model:
   name: PPCA
   args:
     dummy: dummy
+#    clip_grad_norm: 100
+#    noise_variance: [10]
 
 loader:
   module: diffusion.data.dataloaders
   name: DataLoaderLatent
   args:
-    path: /raid/data/gaussian_linear/
+    path: /raid/data/gaussian_linear
     batch_size: 16
     seed: 1
     change_seed: True
@@ -24,13 +26,13 @@ optimizer:
   module: torch.optim
   name: SGD
   args:
-    lr: [.0005]
+    lr: [.01]
 
 trainer:
   module: diffusion.trainer
   name: AETrainer
   args:
-    n_epochs: 200
+    n_epochs: 400
     bm_metric: loss
 #    early_stop_criterion: 20 # if no improvement over this many epochs, stop training
     log_dir: /raid/results

@@ -1,0 +1,41 @@
+name: ppca/ensemble/
+num_runs: 10
+device: cuda:1
+seed: 1
+change_seed: True
+
+model:
+  module: diffusion.models.autoencoder
+  name: PPCA
+  args:
+    dummy: dummy
+#    clip_grad_norm: 100
+#    noise_variance: [10]
+    large_variance_init: true
+
+loader:
+  module: diffusion.data.dataloaders
+  name: DataLoaderLatent
+  args:
+    path: /raid/data/gaussian_linear
+    batch_size: 2
+    seed: 1
+    change_seed: True
+
+
+optimizer:
+  module: torch.optim
+  name: SGD
+  args:
+    lr: [.01]
+
+trainer:
+  module: diffusion.trainer
+  name: AETrainer
+  args:
+    n_epochs: 15
+    bm_metric: loss
+#    early_stop_criterion: 20 # if no improvement over this many epochs, stop training
+    log_dir: /raid/results
+    save_dir: /raid/results
+

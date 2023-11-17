@@ -1,9 +1,9 @@
-name: entropy/ppca/
+name: entropy/ppca/mean/
 device: cuda:1
 num_runs: 1
 seed: 1
 
-stopping_difference: 100
+#stopping_difference: 100
 layer_multiplier: !!python/tuple [2, 2]
 metrics_path: /rdata/results/entropy/ppca/metrics
 
@@ -14,7 +14,8 @@ model:
     estimator_type: simple
     layer_dims: [!!python/tuple [4, 4]]
     kernel: gaussian
-    loss_weight_exponential_parameters: !!python/tuple [10, 0.3]
+#    loss_weight_exponential_parameters: [!!python/tuple [2, .05]]
+#    time_step_separation: [!!python/tuple [.06]]
 
 loader:
   module: diffusion.data.dataloaders
@@ -22,10 +23,11 @@ loader:
   args:
     batch_size: 32
     train_fraction: .8
-    path: /raid/data/neep/ppca/_optimizer_lr_0.0005
+    path: /raid/data/neep/ppca/ensemble/_optimizer_lr_0.005/mean
     standardize: false
-#    n_time_steps: 100000
-#    max_time_step: [12480]
+#    only_use_first_and_last_points: true
+#    n_time_steps_per_batch: 10000
+#    max_time_step: [20000]
 
 
 optimizer:
@@ -38,10 +40,10 @@ trainer:
   module: diffusion.trainer
   name: EntropyTrainer
   args:
-    n_epochs: 1000
+    n_epochs: 2000
     bm_metric: loss
-    early_stop_criterion: 50 # if no improvement over this many epochs, stop training
-    log_plots_every_n_epochs: 100
+    early_stop_criterion: 100 # if no improvement over this many epochs, stop training
+#    log_plots_every_n_epochs: 50
     log_dir: /rdata/results
     save_dir: /rdata/results
 
@@ -49,5 +51,7 @@ trainer:
       module: diffusion.schedulers
       name: HalvingScheduler
       args:
-        start_value: .004
-        halve_after_epochs: !!python/tuple [10, 20, 30]
+#        start_value: .004
+        start_value: .04
+#        halve_after_epochs: !!python/tuple [10, 20, 30]
+        halve_after_epochs: !!python/tuple [200, 500]

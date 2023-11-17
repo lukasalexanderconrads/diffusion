@@ -169,13 +169,13 @@ class EntropyTrainer(Trainer):
     def __init__(self, config, **kwargs):
         super(EntropyTrainer, self).__init__(config, **kwargs)
         self.metric_avg.exclude_keys_from_average(['current'])
-        self.log_plots_every_n_epochs = kwargs.get('log_plots_every_n_epochs', 1)
+        self.log_plots_every_n_epochs = kwargs.get('log_plots_every_n_epochs', None)
 
     def log(self, metrics, epoch, split='train'):
         if split == 'valid':
             current = metrics.pop('current')
             time_point = metrics.pop('time_point')
-            if epoch % self.log_plots_every_n_epochs == 0:
+            if self.log_plots_every_n_epochs is not None and epoch % self.log_plots_every_n_epochs == 0:
                 self.log_entropy_production_rate_plot(current, time_point, epoch)
                 self.log_current_plot(current, time_point, epoch)
                 self.log_loss_plot(time_point, epoch)
