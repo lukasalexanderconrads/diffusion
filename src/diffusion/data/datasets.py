@@ -7,6 +7,7 @@ import re
 import numpy as np
 from math import floor, ceil
 from sklearn.datasets import make_classification
+import psutil
 
 import json
 
@@ -190,8 +191,15 @@ class TrajectoryDatasetLazy(Dataset):
         data_shape = (get_values_from_file_name(self.path, 'num_samples'),
                       get_values_from_file_name(self.path, 'num_steps'),
                       get_values_from_file_name(self.path, 'dim'))
+        required_memory = data_shape[0] * data_shape[1] * data_shape[2] * 32 + 2 * data_shape[1] * 32
+        available_memory = psutil.virtual_memory().available
+        self.lazy = (required_memory > available_memory)
+        self.lazy = True
+        self.data = mmap_ref = np.memmap(path_to_data, dtype='float32', mode='r', shape=data_shape)  # [n_trajects, traject_length, data_dim]
+        if not self.lazy:
+            self.data = torch.tensor(self.data.copy())
+            mmap_ref.flush()
 
-        self.data = np.memmap(path_to_data, dtype='float32', mode='r', shape=data_shape)  # [n_trajects, traject_length, data_dim]
         self.time_points = np.load(path_to_time_points, mmap_mode='r')    # [n_trajects, traject_length]
         if self.max_time_step is not None:
             self.data = self.data[:, :self.max_time_step]
@@ -216,7 +224,10 @@ class TrajectoryDatasetLazy(Dataset):
             self.indices = shuffled_indices[(n_train_samples + n_valid_samples):]
         print(self.data.shape)
     def __getitem__(self, item):
-        data = torch.tensor(self.data[self.indices[item]].copy()).float()
+        if self.lazy:
+            data = torch.tensor(self.data[self.indices[item]].copy()).float()
+        else:
+            data = self.data[self.indices[item]]
         time_points = torch.tensor(self.time_points[self.indices[item]].copy()).float()
         dim = data.shape[-1]
 
@@ -236,7 +247,8 @@ class TrajectoryDatasetLazy(Dataset):
 class TrajectoryDatasetAE(Dataset):
     def __init__(self, set='train', **kwargs):
         super(TrajectoryDatasetAE, self).__init__()
-        self.n_time_steps = kwargs.get('n_time_steps', None)
+        self.n_time_steps_per_batch = kwargs.get('n_time_steps_per_batch', None)
+        self.only_use_first_and_last_points = kwargs.get('only_use_first_and_last_points', None)
         self.max_time_step = kwargs.get('max_time_step', None)
         self.min_time_step = kwargs.get('min_time_step', None)
         self.set = set
@@ -244,14 +256,12 @@ class TrajectoryDatasetAE(Dataset):
         self.path = kwargs.get('path', './data')
         self.train_fraction = kwargs.get('train_fraction', .8)
 
-        time_points = self._get_data()
+        self._prep_data()
 
-        self.time_points = time_points.float()  # [batch_size, traject_length, 2]
+        self.data_shape = (self.data.shape[1], self.data.shape[2]) # (traject_length, data_dim)
+        self.max_time = float(torch.max(self.time_points))
 
-        self.data_shape = (self.data.shape[-2], self.data.shape[-1])
-        self.max_time = float(torch.max(time_points))
-
-    def _get_data(self):
+    def _prep_data(self):
         path_to_data = os.path.join(self.path, 'latent.dat')
         path_to_data_shape = os.path.join(self.path, 'data_shape.npy')
         path_to_lr = os.path.join(self.path, 'learn_rate.pt')
@@ -259,10 +269,12 @@ class TrajectoryDatasetAE(Dataset):
         path_to_loss = os.path.join(self.path, 'loss.pt')
         path_to_bounds = os.path.join(self.path, 'bounds.pt')
 
-        if os.path.exists(path_to_data):
-            data_shape = tuple(np.load(path_to_data_shape))
-            self.data = np.memmap(path_to_data, dtype='float32', mode='r', shape=data_shape)[:, :self.max_time_step]  # [n_trajects, traject_length, data_dim]
+        data_shape = tuple(np.load(path_to_data_shape))
+        self.data = np.memmap(path_to_data, dtype='float32', mode='r', shape=data_shape)[:, :self.max_time_step]  # [n_trajects, traject_length, data_dim]
         lr = torch.load(path_to_lr, map_location="cpu")  # [total_series_length]
+        if self.only_use_first_and_last_points:
+            self.data = self.data[:, [0, -1]]
+            lr = lr[[0, -1]]
         lr[0] = 0
         seq_len = data_shape[1]
         if os.path.exists(path_to_mi):
@@ -294,31 +306,26 @@ class TrajectoryDatasetAE(Dataset):
         if self.set == 'test':
             self.indices = shuffled_indices[(n_train_samples + n_valid_samples):]
 
-        n_series = len(self.indices)
+        self.time_points = torch.cumsum(lr, 0)  # [total_series_length]
 
-        time_points = torch.cumsum(lr, 0)  # [total_series_length]
-        time_points = time_points.repeat_interleave(2, dim=0)  # [total_series_length * 2]
-        time_points = time_points[1:-1]  # [(total_series_length - 1) * 2]
-        time_points = time_points.unsqueeze(0).repeat(n_series, 1)  # [n_series, (total_series_length - 1) * 2]
-        time_points = time_points.reshape(n_series, -1, 2)  # [n_series, total_series_length - 1, 2]
-        # if self.n_time_steps is not None:
-        #     idx = torch.arange(0, seq_len - 1, step=int(seq_len / self.n_time_steps))
-        #     time_points = time_points[:, idx]
-        #     if os.path.exists(path_to_mi):
-        #         self.mi = self.mi[idx]
-        #     if os.path.exists(path_to_loss):
-        #         self.loss = self.loss[idx]
+        self.time_step_indices = torch.randperm(len(self.time_points) - 1)[:self.n_time_steps_per_batch]
+
         print('data_shape:', (len(self.indices), *data_shape[1:]))
-
-        return time_points
 
     def __getitem__(self, item):
         data = torch.from_numpy(self.data[self.indices[item]].copy())
-        data = data.repeat_interleave(2, dim=0)  # [n_series, total_series_length * 2, data_dim]
-        data = data[1:-1]  # [n_series, (total_series_length - 1) * 2, data_dim]
-        data = data.reshape(-1, 2, data.size(-1))  # [n_series, total_series_length - 1, 2, data_dim]
+        data = data.repeat_interleave(2, dim=0)  # [total_series_length * 2, data_dim]
+        data = data[1:-1]  # [(total_series_length - 1) * 2, data_dim]
+        data = data.reshape(-1, 2, data.size(-1))  # [total_series_length - 1, 2, data_dim]
+
+        time_points = torch.stack((self.time_points[:-1], self.time_points[1:]), dim=1) # [total_series_length - 1, 2]
+
+        if self.set == 'train':
+            data = data[self.time_step_indices]
+            time_points = time_points[self.time_step_indices]
+
         return {'data': data,
-                'time_point': self.time_points[item]}
+                'time_point': time_points}
 
     def __len__(self):
         return len(self.indices)
@@ -374,6 +381,9 @@ class LatentDataset:
         path_to_latent = os.path.join(self.path, f'{self.set}_latent.csv')
         data = torch.tensor(np.genfromtxt(path_to_data, delimiter=','))
         latent = torch.tensor(np.genfromtxt(path_to_latent, delimiter=','))
+        if latent.dim() == 1:
+            latent = latent.unsqueeze(-1)
+
         return data, latent
 
     def __getitem__(self, item):
