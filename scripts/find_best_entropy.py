@@ -22,7 +22,7 @@ def main(config_path: Path):
 
     config = config_list[0]
 
-    stopping_difference = config['stopping_difference']
+    stopping_difference = config.get('stopping_difference', None)
     layer_multiplier = config['layer_multiplier']
     data_name = config['loader']['args']['path'].rsplit('/', 1)[-1]
     metrics_path = os.path.join(config['metrics_path'], data_name)
@@ -40,7 +40,7 @@ def main(config_path: Path):
 
         train_loss, valid_loss = float(train_metrics['loss'].detach()), float(valid_metrics['loss'].detach())
 
-        if valid_loss - train_loss > stopping_difference:
+        if stopping_difference is not None and valid_loss - train_loss > stopping_difference:
             done = True
 
         # double layer sizes
@@ -69,7 +69,7 @@ def save_metrics(trainer, metrics_path, train_metrics, valid_metrics, layer_dims
         with open(file_path, 'a') as file:
             writer = csv.writer(file)
             writer.writerow([trainer.name])
-            writer.writerow(['layer_dims', 'train loss', 'valid loss', 'exact_ep', 'train ep var', 'valid ep var', 'valid ep simple'])
+            writer.writerow(['layer_dims', 'train loss', 'valid loss', 'exact_ep', 'train ep var', 'valid ep var', 'valid ep simple', 'avg valid epr var error'])
 
 
     layer_dims = str(layer_dims).replace(',', ' ')
@@ -98,12 +98,14 @@ def save_metrics(trainer, metrics_path, train_metrics, valid_metrics, layer_dims
     if hasattr(trainer.data_loader.train.dataset, 'exact_epr'):
         exact_epr = trainer.data_loader.train.dataset.exact_epr
         exact_ep = float(simpson(exact_epr, t_eval, even="avg"))
+        avg_valid_epr_var_error = torch.mean(torch.abs(exact_epr - valid_epr_var))
     else:
         exact_ep = 'n/a'
+        avg_valid_epr_var_error = 'n/a'
 
     with open(file_path, 'a') as file:
         writer = csv.writer(file)
-        writer.writerow([layer_dims, train_loss, valid_loss, exact_ep, train_ep_var, valid_ep_var, ep_simple])
+        writer.writerow([layer_dims, train_loss, valid_loss, exact_ep, train_ep_var, valid_ep_var, ep_simple, avg_valid_epr_var_error])
 
 def print_experiment_info(config):
     print('-' * 10,
