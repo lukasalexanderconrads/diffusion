@@ -1,5 +1,8 @@
 # diffusion
 
+install the repository via pip with
+```pip install -e .```
+
 Generating data:
 
 Generating Ornstein-Uhlenbeck trajectories:
